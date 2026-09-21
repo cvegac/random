@@ -13,11 +13,20 @@
 #
 # Requires: aws cli v2 (with active credentials/profile: AWS_PROFILE), jq, gawk/awk, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, BATCH_SIZE, PAD_SECONDS, ERROR_PATTERN,
-#                    SERVICE_REGEX, OPERATION_REGEX
+#                    SERVICE_REGEX, OPERATION_REGEX, DEBUG (1 = verbose, 2 = also set -x)
 set -euo pipefail
 
 # Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+
+# We run with --no-verify-ssl, so urllib3 warns on every call: silence it (aws_cli also filters stderr).
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+# The Python bundled with the aws cli defaults to cp1252 ('charmap') on Windows and crashes when a
+# log line has a character it cannot map. Force UTF-8.
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
+
+DEBUG="${DEBUG:-0}"                      # 1 = verbose logs + raw batch JSONs, 2 = also set -x
+[ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
 
 REGION="${AWS_REGION:-us-east-1}"
 OUT_BASE="${OUT_BASE:-results}"
@@ -47,11 +56,31 @@ LOG_GROUPS=(
 # Companion log group of each *-mngr. ADJUST if the real name is different.
 companion_group() { printf '%s-stratus-adapter' "${1%-mngr}"; }
 
-# Every AWS call goes through here so --no-verify-ssl is always applied.
-aws_cli() { aws --no-verify-ssl "$@"; }
+log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
+debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
+die()   { echo "Error: $*" >&2; exit 1; }
 
-log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
-die() { echo "Error: $*" >&2; exit 1; }
+# Every AWS call goes through here so --no-verify-ssl is always applied.
+# stderr is captured: urllib3 warning noise is dropped, real errors are shown and also
+# appended to $TMP/aws_errors.log. stdout passes through untouched.
+aws_cli() {
+  local errfile rc=0 real
+  errfile=$(mktemp)
+  aws --no-verify-ssl "$@" 2> "$errfile" || rc=$?
+  real=$(awk '!/InsecureRequestWarning/ && !/^[[:space:]]*warnings\.warn\(/' "$errfile" | tr -d '\r')
+  rm -f "$errfile"
+  if [ -n "$real" ]; then
+    echo "$real" >&2
+    echo "[$(date +%T)] aws ${1:-} ${2:-} (exit $rc): $real" >> "$TMP/aws_errors.log"
+  fi
+  if [ "$rc" -ne 0 ]; then
+    log "aws ${1:-} ${2:-} FAILED (exit code $rc)"
+    case "$real" in
+      *charmap*) log "  hint: encoding problem in the aws cli output; run with DEBUG=1 and check PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+    esac
+  fi
+  return "$rc"
+}
 
 [ $# -eq 2 ] || die "usage: $0 \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\"  (Colombia time)"
 command -v aws >/dev/null || die "aws cli not found"
@@ -68,6 +97,11 @@ OUT_DIR="${OUT_BASE}/$(to_label "$1")__$(to_label "$2")"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 
+if [ "$DEBUG" != 0 ]; then
+  debug "region=$REGION window=$START..$END pad=${PAD_SECONDS}s batch=$BATCH_SIZE out=$OUT_DIR"
+  debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r') | PYTHONIOENCODING=$PYTHONIOENCODING PYTHONUTF8=$PYTHONUTF8"
+fi
+
 F_RQIDS="$TMP/1_error_rqids.tsv"
 F_TRACES="$TMP/2_traces.ndjson"
 F_CLASSIFIED="$TMP/3_classified.ndjson"
@@ -77,20 +111,26 @@ F_CLASSIFIED="$TMP/3_classified.ndjson"
 # run_query "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the results JSON
 run_query() {
   local query="$1" start="$2" end="$3"; shift 3
-  local qid res status
+  local qid res status polls=0 t0=$SECONDS
+  debug "start-query: ${#query} chars, $# log group(s): $*"
+  debug "query head: ${query:0:300}"
   qid=$(aws_cli logs start-query --region "$REGION" \
           --start-time "$start" --end-time "$end" \
           --query-string "$query" --log-group-names "$@" \
           --query queryId --output text | tr -d '\r')
+  debug "query id: $qid"
   while :; do
+    polls=$((polls + 1))
     res=$(aws_cli logs get-query-results --region "$REGION" --query-id "$qid" --output json)
     status=$(jq -r .status <<<"$res" | tr -d '\r')
+    debug "poll #$polls status=$status matched=$(jq -r '.statistics.recordsMatched // "?"' <<<"$res" | tr -d '\r') scanned=$(jq -r '.statistics.recordsScanned // "?"' <<<"$res" | tr -d '\r')"
     case "$status" in
       Complete) break ;;
       Failed|Cancelled|Timeout) die "query $qid ended with status $status" ;;
     esac
     sleep 2
   done
+  log "  query $qid complete: $(jq '.results | length' <<<"$res" | tr -d '\r') rows in $((SECONDS - t0))s"
   printf '%s' "$res"
 }
 
@@ -133,7 +173,7 @@ EOF
 step2_full_transactions() {
   log "Step 2: fetching full transactions per log group"
   : > "$F_TRACES"
-  local groups g comp targets ids i slice regex idsjson q n
+  local groups g comp targets ids i slice regex idsjson q n before after
   mapfile -t groups < <(cut -f2 "$F_RQIDS" | sort -u)
 
   for g in "${groups[@]}"; do
@@ -153,7 +193,9 @@ step2_full_transactions() {
 | sort @timestamp asc
 | limit 10000"
 
+      before=$(awk 'END {print NR}' "$F_TRACES")
       run_query "$q" "$((START - PAD_SECONDS))" "$((END + PAD_SECONDS))" "${targets[@]}" > "$TMP/2_batch.json"
+      [ "$DEBUG" = 0 ] || cp "$TMP/2_batch.json" "$TMP/debug_batch_${g##*/}_$i.json"
 
       # Assigns to each line the RQID (from the list) contained in its message
       jq -c --argjson ids "$idsjson" "$FLAT"' as $r
@@ -166,6 +208,8 @@ step2_full_transactions() {
          < "$TMP/2_batch.json" | tr -d '\r' >> "$F_TRACES"
 
       n=$(jq '.results | length' < "$TMP/2_batch.json" | tr -d '\r')
+      after=$(awk 'END {print NR}' "$F_TRACES")
+      log "    batch $((i / BATCH_SIZE + 1)): ${#slice[@]} RQIDs -> $n rows returned, $((after - before)) matched to an RQID"
       [ "$n" -lt 10000 ] || log "  WARNING: batch hit 10,000 rows (truncated). Lower BATCH_SIZE."
     done
   done
