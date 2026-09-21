@@ -13,7 +13,7 @@
 #
 # Requires: aws cli v2 (with active credentials/profile: AWS_PROFILE), jq, gawk/awk, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, BATCH_SIZE, PAD_SECONDS, ERROR_PATTERN,
-#                    SERVICE_REGEX, OPERATION_REGEX, DEBUG (1 = verbose, 2 = also set -x)
+#                    SERVICE_REGEX, OPERATION_REGEX, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
 set -euo pipefail
 
 # Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
@@ -25,7 +25,7 @@ export PYTHONWARNINGS="ignore:Unverified HTTPS request"
 # log line has a character it cannot map. Force UTF-8.
 export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
 
-DEBUG="${DEBUG:-0}"                      # 1 = verbose logs + raw batch JSONs, 2 = also set -x
+DEBUG="${DEBUG:-1}"                      # 0 = quiet, 1 = verbose logs + raw batch JSONs (default), 2 = also set -x
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -76,7 +76,7 @@ aws_cli() {
   if [ "$rc" -ne 0 ]; then
     log "aws ${1:-} ${2:-} FAILED (exit code $rc)"
     case "$real" in
-      *charmap*) log "  hint: encoding problem in the aws cli output; run with DEBUG=1 and check PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+      *charmap*) log "  hint: encoding problem in the aws cli output; check the DEBUG output and PYTHONIOENCODING=$PYTHONIOENCODING" ;;
     esac
   fi
   return "$rc"
