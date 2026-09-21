@@ -237,11 +237,11 @@ step3_group_by_service() {
     safe=$(printf '%s' "$svc" | tr -c 'A-Za-z0-9_.\n-' '_')
     out="$OUT_DIR/${safe}.csv"
     {
-      echo 'colombia_time,utc_timestamp,rqid,log_group,log_stream,message'
+      echo 'colombia_time,rqid,log_group,message'
       jq -s -r --arg s "$svc" --argjson off "$TZ_OFFSET_SECONDS" '
         def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
         [ .[] | select(.service == $s) ] | sort_by(.rqid, .ts) | .[]
-        | [ (.ts | col), .ts, .rqid, .log, .stream, (.message | gsub("[\r\n]+"; " ")) ] | @csv' < "$F_CLASSIFIED"
+        | [ (.ts | col), .rqid, .log, (.message | gsub("[\r\n]+"; " ")) ] | @csv' < "$F_CLASSIFIED"
     } | tr -d '\r' > "$out"
     log "  $(basename "$out")"
   done
