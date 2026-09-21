@@ -48,6 +48,8 @@ to_epoch()  { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$
 to_label()  { date -d "$1" +%Y%m%d_%H%M%S; }
 # epoch -> Colombia wall clock (for logs only)
 fmt_local() { date -u -d "@$(( $1 + TZ_OFFSET_SECONDS ))" '+%Y-%m-%d %H:%M:%S'; }
+# epoch -> UTC wall clock (what the CloudWatch console shows)
+fmt_utc()   { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }
 
 START=$(to_epoch "$1")
 END=$(to_epoch "$2")
@@ -159,6 +161,11 @@ fetch_range() {
   local s="$1" e="$2" n mid
   run_query "$QUERY" "$s" "$e" "$LG" > "$TMP/piece.json"
   n=$(jq '.results | length' < "$TMP/piece.json" | tr -d '\r')
+  if [ "$n" -eq 0 ]; then
+    log "    WARNING: 0 rows from $LG (recordsScanned=$(jq -r '.statistics.recordsScanned // "?"' < "$TMP/piece.json" | tr -d '\r'))."
+    log "    scanned=0 means that log group has NO events in $(fmt_utc "$s") .. $(fmt_utc "$e") UTC. Input times are read as Colombia (UTC-5):"
+    log "    if you copied them from the CloudWatch console (UTC), subtract 5 hours, and double check the log group name."
+  fi
   if [ "$n" -ge "$MAX_ROWS" ]; then
     if [ $((e - s)) -gt 1 ]; then
       mid=$(( (s + e) / 2 ))
@@ -188,7 +195,7 @@ for LG in "${LOG_GROUPS[@]}"; do
   for ((s = START; s < END; s += CHUNK)); do
     k=$((k + 1))
     e=$((s + CHUNK)); [ "$e" -le "$END" ] || e="$END"
-    log "  chunk $k/$N_CHUNKS: $(fmt_local "$s") .. $(fmt_local "$e")"
+    log "  chunk $k/$N_CHUNKS: $(fmt_local "$s") .. $(fmt_local "$e") Colombia  =  $(fmt_utc "$s") .. $(fmt_utc "$e") UTC"
     fetch_range "$s" "$e"
   done
   log "Done $LG: $TOTAL rows -> $OUT_FILE"
