@@ -26,6 +26,16 @@
 # You no longer pick a chunk/interval size: it starts with the whole range in one query and only
 # splits when a window actually hits the 10,000-row cap.
 #
+# Windows are fetched in parallel (PARALLEL below), not one at a time: each Logs Insights query
+# spends most of its wall-clock time waiting on AWS (start + poll every 2s), not on local work, so
+# running several at once is the biggest speed lever here — much bigger than how the splitting
+# itself works. A window too big to fetch in one query is only discovered by querying it, so a
+# "probe" and a "real fetch" are the same job: it either yields final rows, or two new (smaller)
+# windows to queue. Because jobs finish in no particular order, boundary duplicates (Insights
+# ranges are inclusive on both ends) can no longer be filtered with the old "remember the previous
+# chunk's tail" trick — instead every row keeps its @ptr and gets de-duplicated exactly, once, over
+# the whole collected dataset (simpler and more exact than the old 2-second-window heuristic).
+#
 # Usage:  ./query_nexus_traces.sh <log-group> "<start>" "<end>" [output.csv]
 #         (start/end are local time, offset TZ_OFFSET below; default -05:00 = Bogota)
 #
@@ -34,8 +44,10 @@
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
 # Optional env vars: AWS_REGION, TZ_OFFSET (default -05:00; use +00:00 to type UTC times, e.g.
-#                    copied straight from the CloudWatch console), DEBUG (0 = quiet, 1 = verbose
-#                    [default], 2 = also set -x)
+#                    copied straight from the CloudWatch console), PARALLEL (default 6 — concurrent
+#                    Insights queries; AWS's account-wide cap is 100 as of March 2026, shared with
+#                    dashboards and scheduled queries, so this defaults well under it), DEBUG
+#                    (0 = quiet, 1 = verbose [default], 2 = also set -x)
 set -euo pipefail
 
 # Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
@@ -84,11 +96,11 @@ OUTPUT_FILE="${4:-${safe}_$(to_label "$2")__$(to_label "$3").csv}"
 
 CSV_HEADER='horaprimeratrx,horaultimatrx,rquid,servicio,ValidateServiceInformation,SignatureValidationStep,BodyManipulatorStep,XsdValidationStep,DataBlockExtractorStep,XmlToJsonConverterStep,BackendHttpAdapter,ResponseSigningStep,ResponseBuilderStep'
 
+PARALLEL="${PARALLEL:-6}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-RAW="$TMP/raw.ndjson"
-: > "$RAW"
-echo '[]' > "$TMP/seen_ptrs.json"
+RAW="$TMP/raw.ndjson"          # final, de-duplicated dataset (step 1's output, step 2's input)
+JOBDIR="$TMP/jobs"; mkdir -p "$JOBDIR"
 
 if [ "$DEBUG" != 0 ]; then
   debug "region=$REGION offset=$TZ_OFFSET window=$START..$END out=$OUTPUT_FILE"
@@ -156,53 +168,69 @@ fields @timestamp, @ptr, @message
 | limit 10000
 EOF
 
-# Reads piece.json and seen_ptrs.json concatenated on stdin (jq -s slurps both into [.0, .1]),
-# never as a --argjson/--slurpfile path argument: with MSYS_NO_PATHCONV=1 (needed for the log
-# group names above), a native jq.exe can't resolve a bare Unix path passed as an argument, and
-# the boundary @ptr list can also grow into the thousands in a busy log group, which blows past
-# the ~32K Windows command-line length limit if inlined as JSON text instead. `cat` is an
-# MSYS-native tool so it is unaffected by MSYS_NO_PATHCONV either way.
+# Reads piece.json on stdin (never as a path argument to jq): with MSYS_NO_PATHCONV=1 (needed for
+# the log group names above), a native jq.exe can't resolve a bare Unix path passed as an argument.
+# Keeps @ptr so duplicate boundary rows can be removed later, in one exact global pass (see below).
 ROWS_JQ='
-  .[1] as $seen
-  | .[0].results[] | (map({(.field): .value}) | add)
-  | select((.["@ptr"] // "") as $p | $p == "" or ($seen | any(. == $p) | not))
-  | {ts: .["@timestamp"], rqid: .rquid, servicio: .servicio, paso: .Paso, tiempo: .Tiempo}'
+  .results[] | (map({(.field): .value}) | add)
+  | {ts: .["@timestamp"], ptr: (.["@ptr"] // null),
+     rqid: .rquid, servicio: .servicio, paso: .Paso, tiempo: .Tiempo}'
 
-SEEN_JQ='
-  [ .results[] | (map({(.field): .value}) | add)
-    | select((.["@timestamp"][0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= ($e - 2))
-    | (.["@ptr"] // empty) ]'
+# ---- bounded-concurrency work queue --------------------------------------------------------
+# A window too big to fetch in one query (>= MAX_ROWS) is only discovered by querying it, so a
+# "probe" and a "real fetch" are the same job: on completion it either writes final rows, or
+# queues two new (smaller) windows. Up to PARALLEL jobs run at once.
+QUEUE=("$START:$END")
+declare -A INFLIGHT=()   # pid -> "piece_file:s:e"
+n_jobs=0
 
-# fetch_range <start_epoch> <end_epoch>. Bisects automatically if a window hits MAX_ROWS, so no
-# transaction is lost to the cap and no interval size needs to be chosen up front.
-fetch_range() {
-  local s="$1" e="$2" n mid
-  run_query "$s" "$e" > "$TMP/piece.json"
-  n=$(jq '.results | length' < "$TMP/piece.json" | tr -d '\r')
-  if [ "$n" -ge "$MAX_ROWS" ]; then
-    if [ $((e - s)) -gt 1 ]; then
-      mid=$(( (s + e) / 2 ))
-      log "  $n rows = query limit, splitting: $(fmt_local "$s") | $(fmt_local "$mid") | $(fmt_local "$e")"
-      fetch_range "$s" "$mid"
-      fetch_range "$mid" "$e"
-      return 0
-    fi
-    log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
-  fi
-  cat "$TMP/piece.json" "$TMP/seen_ptrs.json" | jq -c -s "$ROWS_JQ" | tr -d '\r' >> "$RAW"
-  jq -c --argjson e "$e" "$SEEN_JQ" < "$TMP/piece.json" | tr -d '\r' > "$TMP/seen_ptrs.json"
-  log "  wrote $n rows ($(awk 'END{print NR}' "$RAW") raw rows so far)"
+launch_next() {
+  local item="${QUEUE[0]}" s e piece
+  QUEUE=("${QUEUE[@]:1}")
+  s="${item%%:*}"; e="${item##*:}"
+  n_jobs=$((n_jobs + 1))
+  piece="$JOBDIR/p${n_jobs}.json"
+  run_query "$s" "$e" > "$piece" &
+  INFLIGHT[$!]="$piece:$s:$e"
 }
 
-log "Step 1: fetching raw matching lines (auto-splits any window that hits $MAX_ROWS rows)"
-fetch_range "$START" "$END"
-log "  -> $(awk 'END{print NR}' "$RAW") raw rows collected"
+log "Step 1: fetching raw matching lines, up to $PARALLEL at a time (auto-splits any window that hits $MAX_ROWS rows)"
+while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
+  while [ "${#INFLIGHT[@]}" -lt "$PARALLEL" ] && [ "${#QUEUE[@]}" -gt 0 ]; do
+    launch_next
+  done
+  [ "${#INFLIGHT[@]}" -gt 0 ] || break
+  wait -n || true   # a failing job's own exit status must not trip `set -e` here; handled below
+  for pid in "${!INFLIGHT[@]}"; do
+    kill -0 "$pid" 2>/dev/null && continue   # still running
+    info="${INFLIGHT[$pid]}"; unset 'INFLIGHT[$pid]'
+    piece="${info%%:*}"; rest="${info#*:}"; s="${rest%%:*}"; e="${rest##*:}"
+    wait "$pid"; rc=$?
+    [ "$rc" -eq 0 ] || die "background query for $(fmt_local "$s") .. $(fmt_local "$e") failed (exit $rc); see $TMP/aws_errors.log"
+    n=$(jq '.results | length' < "$piece" | tr -d '\r')
+    if [ "$n" -ge "$MAX_ROWS" ] && [ $((e - s)) -gt 1 ]; then
+      mid=$(( (s + e) / 2 ))
+      log "  $n rows = query limit, splitting: $(fmt_local "$s") | $(fmt_local "$mid") | $(fmt_local "$e")"
+      QUEUE+=("$s:$mid" "$mid:$e")
+    else
+      [ "$n" -lt "$MAX_ROWS" ] || log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
+      jq -c "$ROWS_JQ" < "$piece" | tr -d '\r' >> "$RAW.dup"
+      log "  wrote $n rows ($(fmt_local "$s") .. $(fmt_local "$e"))"
+    fi
+    rm -f "$piece"
+  done
+done
 
-if [ ! -s "$RAW" ]; then
+if [ ! -s "$RAW.dup" ]; then
   log "No matching lines in this window. Writing an empty CSV."
   echo "$CSV_HEADER" > "$OUTPUT_FILE"
   exit 0
 fi
+
+# Parallel jobs have no ordering, so boundary duplicates (Insights ranges are inclusive on both
+# ends) are removed here, once, exactly, by @ptr — instead of during collection.
+jq -s -c 'unique_by(.ptr) | .[]' < "$RAW.dup" | tr -d '\r' > "$RAW"
+log "  -> $(awk 'END{print NR}' "$RAW.dup") rows fetched, $(awk 'END{print NR}' "$RAW") unique after de-duplicating boundary overlaps"
 
 # ---------------------------------------------------------------- step 2: aggregate ONCE, over everything
 
