@@ -156,8 +156,15 @@ fields @timestamp, @ptr, @message
 | limit 10000
 EOF
 
+# Reads piece.json and seen_ptrs.json concatenated on stdin (jq -s slurps both into [.0, .1]),
+# never as a --argjson/--slurpfile path argument: with MSYS_NO_PATHCONV=1 (needed for the log
+# group names above), a native jq.exe can't resolve a bare Unix path passed as an argument, and
+# the boundary @ptr list can also grow into the thousands in a busy log group, which blows past
+# the ~32K Windows command-line length limit if inlined as JSON text instead. `cat` is an
+# MSYS-native tool so it is unaffected by MSYS_NO_PATHCONV either way.
 ROWS_JQ='
-  .results[] | (map({(.field): .value}) | add)
+  .[1] as $seen
+  | .[0].results[] | (map({(.field): .value}) | add)
   | select((.["@ptr"] // "") as $p | $p == "" or ($seen | any(. == $p) | not))
   | {ts: .["@timestamp"], rqid: .rquid, servicio: .servicio, paso: .Paso, tiempo: .Tiempo}'
 
@@ -182,7 +189,7 @@ fetch_range() {
     fi
     log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
   fi
-  jq -c --argjson seen "$(<"$TMP/seen_ptrs.json")" "$ROWS_JQ" < "$TMP/piece.json" | tr -d '\r' >> "$RAW"
+  cat "$TMP/piece.json" "$TMP/seen_ptrs.json" | jq -c -s "$ROWS_JQ" | tr -d '\r' >> "$RAW"
   jq -c --argjson e "$e" "$SEEN_JQ" < "$TMP/piece.json" | tr -d '\r' > "$TMP/seen_ptrs.json"
   log "  wrote $n rows ($(awk 'END{print NR}' "$RAW") raw rows so far)"
 }

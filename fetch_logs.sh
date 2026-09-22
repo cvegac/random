@@ -130,9 +130,16 @@ fi
 
 # jq: results[] -> CSV rows "colombia_time,message", skipping rows whose @ptr was already written
 # at the boundary of the previous piece (Insights time ranges are inclusive on both ends).
+# Reads piece.json and the seen-ptrs file concatenated on stdin (jq -s slurps both into [.0, .1]),
+# never as a --argjson/--slurpfile path argument: with MSYS_NO_PATHCONV=1 (needed for the log
+# group names above), a native jq.exe can't resolve a bare Unix path passed as an argument, and
+# the boundary @ptr list can also grow into the thousands in a busy log group, which blows past
+# the ~32K Windows command-line length limit if inlined as JSON text instead. `cat` is an
+# MSYS-native tool so it is unaffected by MSYS_NO_PATHCONV either way.
 ROWS_JQ='
   def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
-  .results[] | (map({(.field): .value}) | add)
+  .[1] as $seen
+  | .[0].results[] | (map({(.field): .value}) | add)
   | select((.["@ptr"] // "") as $p | $p == "" or ($seen | any(. == $p) | not))
   | [ (.["@timestamp"] | col), (.["@message"] | gsub("[\r\n]+"; " ")) ] | @csv'
 
@@ -147,8 +154,8 @@ TOTAL=0
 # write_piece <end_epoch>   (reads $TMP/piece.json, appends to $OUT_FILE)
 write_piece() {
   local e="$1" written
-  jq -r --argjson off "$TZ_OFFSET_SECONDS" --argjson seen "$(<"$SEEN_FILE")" "$ROWS_JQ" \
-     < "$TMP/piece.json" | tr -d '\r' > "$TMP/piece.csv"
+  cat "$TMP/piece.json" "$SEEN_FILE" | jq -r -s --argjson off "$TZ_OFFSET_SECONDS" "$ROWS_JQ" \
+     | tr -d '\r' > "$TMP/piece.csv"
   written=$(awk 'END {print NR}' "$TMP/piece.csv")
   tr -d '\r' < "$TMP/piece.csv" >> "$OUT_FILE"
   jq -c --argjson e "$e" "$SEEN_JQ" < "$TMP/piece.json" | tr -d '\r' > "$SEEN_FILE"
