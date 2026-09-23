@@ -36,6 +36,17 @@
 # chunk's tail" trick — instead every row keeps its @ptr and gets de-duplicated exactly, once, over
 # the whole collected dataset (simpler and more exact than the old 2-second-window heuristic).
 #
+# Every successfully-fetched window (a "leaf" that didn't hit the 10,000-row cap) is cached to
+# disk under CACHE_DIR, keyed by log group + the exact query text + that window's start/end. This
+# survives across runs (unlike the temp dir, which is always cleaned up): if AWS throws a transient
+# error partway through a long fetch — more likely now that several queries run at once — and the
+# script has to give up and die, re-running the exact same command skips every window it already
+# has cached instead of re-downloading the whole range from zero. Two more related hardenings:
+# transient AWS errors (ServiceUnavailableException, throttling, ...) are retried a few times with
+# backoff before giving up, and if the script does die, any OTHER windows still being fetched in
+# the background are killed outright (not left running as orphans that fail later, confusingly,
+# once the temp dir they were writing into is already gone).
+#
 # Usage:  ./query_nexus_traces.sh <log-group> "<start>" "<end>" [output.csv]
 #         (start/end are local time, offset TZ_OFFSET below; default -05:00 = Bogota)
 #
@@ -46,9 +57,13 @@
 # Optional env vars: AWS_REGION, TZ_OFFSET (default -05:00; use +00:00 to type UTC times, e.g.
 #                    copied straight from the CloudWatch console), PARALLEL (default 6 — concurrent
 #                    Insights queries; AWS's account-wide cap is 100 as of March 2026, shared with
-#                    dashboards and scheduled queries, so this defaults well under it), DEBUG
-#                    (0 = quiet, 1 = verbose [default], 2 = also set -x)
+#                    dashboards and scheduled queries, so this defaults well under it), CACHE_DIR
+#                    (default .query_nexus_cache — delete it to force a full re-fetch, or point it
+#                    elsewhere; it grows unbounded, nothing prunes it), DEBUG (0 = quiet, 1 = verbose
+#                    [default], 2 = also set -x)
 set -euo pipefail
+set -m   # job control on: each backgrounded query gets its own process group, so a killed job's
+         # own children (the aws process itself, and anything it spawns) die with it — see trap below
 
 # Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
@@ -98,9 +113,20 @@ CSV_HEADER='horaprimeratrx,horaultimatrx,rquid,servicio,ValidateServiceInformati
 
 PARALLEL="${PARALLEL:-6}"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# On ANY exit (success, die, Ctrl-C) kill whatever background queries are still running before
+# removing $TMP. Without this, a job still in flight when the script dies keeps running orphaned,
+# and its next write into $TMP fails ("No such file or directory") since it's already gone by
+# then — that stray failure, printed after the shell prompt has already come back, is what makes
+# a real error look like two confusing, unrelated ones.
+trap 'for _p in $(jobs -p); do kill -- "-$_p" 2>/dev/null; done; rm -rf "$TMP"' EXIT
 RAW="$TMP/raw.ndjson"          # final, de-duplicated dataset (step 1's output, step 2's input)
 JOBDIR="$TMP/jobs"; mkdir -p "$JOBDIR"
+
+# Local cache of already-fetched leaf windows, keyed by log group + the exact query text (so
+# editing the parsing rule can't silently serve stale rows) + the window's own start/end. Survives
+# across runs (unlike $TMP): if the script dies partway (AWS hiccup, Ctrl-C, power loss), re-running
+# the exact same command skips every window already fetched instead of re-downloading everything.
+CACHE_DIR="${CACHE_DIR:-.query_nexus_cache}"
 
 if [ "$DEBUG" != 0 ]; then
   debug "region=$REGION offset=$TZ_OFFSET window=$START..$END out=$OUTPUT_FILE"
@@ -113,22 +139,41 @@ log "Window: $(fmt_local "$START") .. $(fmt_local "$END")  (offset $TZ_OFFSET)  
 # Every AWS call goes through here so --no-verify-ssl is always applied.
 # stderr is captured: urllib3 warning noise is dropped, real errors are shown and also
 # appended to $TMP/aws_errors.log. stdout passes through untouched.
+# Transient AWS errors (ServiceUnavailableException, throttling, ...) are retried with backoff:
+# running several queries at once makes these noticeably more common than one-at-a-time ever did,
+# and the AWS CLI's own built-in retrying ("reached max retries: 2" in the error text) is not
+# enough on its own to ride out a burst of them.
 aws_cli() {
-  local errfile rc=0 real
-  errfile=$(mktemp)
-  aws --no-verify-ssl "$@" 2> "$errfile" || rc=$?
-  real=$(awk '!/InsecureRequestWarning/ && !/^[[:space:]]*warnings\.warn\(/' "$errfile" | tr -d '\r')
-  rm -f "$errfile"
-  if [ -n "$real" ]; then
-    echo "$real" >&2
-    echo "[$(date +%T)] aws ${1:-} ${2:-} (exit $rc): $real" >> "$TMP/aws_errors.log"
-  fi
-  if [ "$rc" -ne 0 ]; then
-    log "aws ${1:-} ${2:-} FAILED (exit code $rc)"
+  local errfile outfile rc=0 real attempt max=4
+  for ((attempt = 1; attempt <= max; attempt++)); do
+    errfile=$(mktemp); outfile=$(mktemp)
+    aws --no-verify-ssl "$@" > "$outfile" 2> "$errfile"
+    rc=$?
+    real=$(awk '!/InsecureRequestWarning/ && !/^[[:space:]]*warnings\.warn\(/' "$errfile" | tr -d '\r')
+    rm -f "$errfile"
+    if [ "$rc" -eq 0 ]; then
+      cat "$outfile"; rm -f "$outfile"
+      return 0
+    fi
+    rm -f "$outfile"
+    if [ -n "$real" ]; then
+      echo "$real" >&2
+      echo "[$(date +%T)] aws ${1:-} ${2:-} (exit $rc, attempt $attempt/$max): $real" >> "$TMP/aws_errors.log"
+    fi
     case "$real" in
-      *charmap*) log "  hint: encoding problem in the aws cli output; check DEBUG output and PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+      *ServiceUnavailableException*|*ThrottlingException*|*TooManyRequestsException*|*RequestLimitExceeded*|*InternalServerError*|*InternalFailure*)
+        if [ "$attempt" -lt "$max" ]; then
+          log "  transient AWS error on attempt $attempt/$max, retrying in $((attempt * 3))s"
+          sleep $((attempt * 3))
+          continue
+        fi ;;
     esac
-  fi
+    break
+  done
+  log "aws ${1:-} ${2:-} FAILED (exit code $rc, attempt $attempt/$max)"
+  case "$real" in
+    *charmap*) log "  hint: encoding problem in the aws cli output; check DEBUG output and PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+  esac
   return "$rc"
 }
 
@@ -168,6 +213,10 @@ fields @timestamp, @ptr, @message
 | limit 10000
 EOF
 
+CACHE_KEY_DIR="$CACHE_DIR/$(printf '%s' "${LOG_GROUP#/}" | tr -c 'A-Za-z0-9_.\n-' '_')/$(printf '%s' "$QUERY" | cksum | cut -d' ' -f1)"
+mkdir -p "$CACHE_KEY_DIR"
+debug "cache: $CACHE_KEY_DIR"
+
 # Reads piece.json on stdin (never as a path argument to jq): with MSYS_NO_PATHCONV=1 (needed for
 # the log group names above), a native jq.exe can't resolve a bare Unix path passed as an argument.
 # Keeps @ptr so duplicate boundary rows can be removed later, in one exact global pass (see below).
@@ -185,9 +234,16 @@ declare -A INFLIGHT=()   # pid -> "piece_file:s:e"
 n_jobs=0
 
 launch_next() {
-  local item="${QUEUE[0]}" s e piece
+  local item="${QUEUE[0]}" s e piece cache_file n
   QUEUE=("${QUEUE[@]:1}")
   s="${item%%:*}"; e="${item##*:}"
+  cache_file="$CACHE_KEY_DIR/${s}_${e}.ndjson"
+  if [ -f "$cache_file" ]; then
+    n=$(awk 'END{print NR}' "$cache_file")
+    cat "$cache_file" >> "$RAW.dup"
+    log "  cache hit: $(fmt_local "$s") .. $(fmt_local "$e") ($n rows, no AWS call)"
+    return 0   # doesn't touch INFLIGHT/PARALLEL at all, it's instant
+  fi
   n_jobs=$((n_jobs + 1))
   piece="$JOBDIR/p${n_jobs}.json"
   run_query "$s" "$e" > "$piece" &
@@ -214,7 +270,9 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
       QUEUE+=("$s:$mid" "$mid:$e")
     else
       [ "$n" -lt "$MAX_ROWS" ] || log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
-      jq -c "$ROWS_JQ" < "$piece" | tr -d '\r' >> "$RAW.dup"
+      # tee also writes the cache file for this exact window (fresh — a cache hit above always
+      # skips getting here for the same s:e), so a later re-run can skip it entirely.
+      jq -c "$ROWS_JQ" < "$piece" | tr -d '\r' | tee -a "$RAW.dup" > "$CACHE_KEY_DIR/${s}_${e}.ndjson"
       log "  wrote $n rows ($(fmt_local "$s") .. $(fmt_local "$e"))"
     fi
     rm -f "$piece"
