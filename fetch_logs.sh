@@ -57,7 +57,6 @@ CHUNK=$((CHUNK_MINUTES * 60))
 
 TMP="${OUT_BASE}/_intermediate"
 mkdir -p "$TMP"
-SEEN_FILE="$TMP/boundary_ptrs.json"
 
 if [ "$DEBUG" != 0 ]; then
   debug "region=$REGION window=$START..$END chunk=${CHUNK_MINUTES}m filter='${MESSAGE_FILTER}' out=$OUT_BASE"
@@ -123,39 +122,32 @@ else
 | limit ${MAX_ROWS}"
 fi
 
-# results[] -> CSV rows "colombia_time,message", skipping @ptr already seen at the previous piece's
-# boundary (Insights ranges are inclusive on both ends). piece.json + seen-ptrs file are read
-# concatenated on stdin (jq -s -> [.0, .1]), never as a --argjson/--slurpfile path: with
-# MSYS_NO_PATHCONV=1 a native jq.exe can't resolve a bare Unix path argument, and the @ptr list can
-# grow past the ~32K Windows command-line limit if inlined as text instead.
+# results[] -> {ts, ptr, message}, one line per row. No filtering here: pieces (chunks, and their
+# recursive splits) can each return the same row more than once — not just at a shared boundary,
+# Insights can repeat a row within a single query's own results too — so every row is collected
+# with its @ptr and de-duplicated exactly once at the end, instead of guessing at fetch time.
 ROWS_JQ='
-  def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
-  .[1] as $seen
-  | .[0].results[] | (map({(.field): .value}) | add)
-  | select((.["@ptr"] // "") as $p | $p == "" or ($seen | any(. == $p) | not))
-  | [ (.["@timestamp"] | col), (.["@message"] | gsub("[\r\n]+"; " ")) ] | @csv'
+  .results[] | (map({(.field): .value}) | add)
+  | {ts: .["@timestamp"], ptr: (.["@ptr"] // null), message: .["@message"]}'
 
-# jq: @ptr of the rows in the last 2 seconds of a piece -> remembered to de-duplicate the next piece
-SEEN_JQ='
-  [ .results[] | (map({(.field): .value}) | add)
-    | select((.["@timestamp"][0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= ($e - 2))
-    | (.["@ptr"] // empty) ]'
+# ts, message -> final CSV row, converting ts to Colombia local time
+FINAL_JQ='
+  def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
+  unique_by(.ptr) | sort_by(.ts) | .[]
+  | [ (.ts | col), (.message | gsub("[\r\n]+"; " ")) ] | @csv'
 
 TOTAL=0
 
-# write_piece <end_epoch>   (reads $TMP/piece.json, appends to $OUT_FILE)
+# write_piece: reads $TMP/piece.json, appends its rows (raw, not yet deduplicated) to $RAW_FILE
 write_piece() {
-  local e="$1" written
-  cat "$TMP/piece.json" "$SEEN_FILE" | jq -r -s --argjson off "$TZ_OFFSET_SECONDS" "$ROWS_JQ" \
-     | tr -d '\r' > "$TMP/piece.csv"
-  written=$(awk 'END {print NR}' "$TMP/piece.csv")
-  tr -d '\r' < "$TMP/piece.csv" >> "$OUT_FILE"
-  jq -c --argjson e "$e" "$SEEN_JQ" < "$TMP/piece.json" | tr -d '\r' > "$SEEN_FILE"
-  TOTAL=$((TOTAL + written))
-  log "    wrote $written rows (total for this log group: $TOTAL)"
+  local n
+  jq -c "$ROWS_JQ" < "$TMP/piece.json" | tr -d '\r' >> "$RAW_FILE"
+  n=$(jq '.results | length' < "$TMP/piece.json" | tr -d '\r')
+  TOTAL=$((TOTAL + n))
+  log "    wrote $n rows (total for this log group: $TOTAL, before de-duplication)"
 }
 
-# fetch_range <start_epoch> <end_epoch>   (uses $LG and $OUT_FILE). Splits in half if the limit is hit.
+# fetch_range <start_epoch> <end_epoch>   (uses $LG and $RAW_FILE). Splits in half if the limit is hit.
 fetch_range() {
   local s="$1" e="$2" n mid
   run_query "$QUERY" "$s" "$e" "$LG" > "$TMP/piece.json"
@@ -185,8 +177,8 @@ N_CHUNKS=$(( (END - START + CHUNK - 1) / CHUNK ))
 for LG in "${LOG_GROUPS[@]}"; do
   safe=$(printf '%s' "${LG#/}" | tr -c 'A-Za-z0-9_.\n-' '_')
   OUT_FILE="${OUT_BASE}/${safe}_${LABEL}.csv"
-  echo 'colombia_time,message' > "$OUT_FILE"
-  echo '[]' > "$SEEN_FILE"
+  RAW_FILE="$TMP/raw_${safe}.ndjson"
+  : > "$RAW_FILE"
   TOTAL=0
   log "Log group $LG -> $OUT_FILE ($N_CHUNKS chunks of ${CHUNK_MINUTES}m)"
 
@@ -197,5 +189,9 @@ for LG in "${LOG_GROUPS[@]}"; do
     log "  chunk $k/$N_CHUNKS: $(fmt_local "$s") .. $(fmt_local "$e") Colombia  =  $(fmt_utc "$s") .. $(fmt_utc "$e") UTC"
     fetch_range "$s" "$e"
   done
-  log "Done $LG: $TOTAL rows -> $OUT_FILE"
+
+  echo 'colombia_time,message' > "$OUT_FILE"
+  jq -s -r --argjson off "$TZ_OFFSET_SECONDS" "$FINAL_JQ" < "$RAW_FILE" | tr -d '\r' >> "$OUT_FILE"
+  final=$(($(awk 'END{print NR}' "$OUT_FILE") - 1))
+  log "Done $LG: $TOTAL rows fetched, $final unique -> $OUT_FILE"
 done
