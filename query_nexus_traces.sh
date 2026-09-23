@@ -64,8 +64,10 @@
 #                    Insights queries; AWS's account-wide cap is 100 as of March 2026, shared with
 #                    dashboards and scheduled queries, so this defaults well under it), CACHE_DIR
 #                    (default .query_nexus_cache — delete it to force a full re-fetch, or point it
-#                    elsewhere; it grows unbounded, nothing prunes it), DEBUG (0 = quiet, 1 = verbose
-#                    [default], 2 = also set -x)
+#                    elsewhere; it grows unbounded, nothing prunes it), BAR_WIDTH (default 50 —
+#                    characters wide for the progress bar), PROGRESS_STEP (default 1 — only reprint
+#                    the bar once coverage advances by this many percentage points), DEBUG
+#                    (0 = quiet, 1 = verbose [default], 2 = also set -x)
 set -euo pipefail
 set -m   # job control on: each backgrounded query gets its own process group, so a killed job's
          # own children (the aws process itself, and anything it spawns) die with it — see trap below
@@ -126,6 +128,63 @@ TMP=$(mktemp -d)
 trap 'for _p in $(jobs -p); do kill -- "-$_p" 2>/dev/null; done; rm -rf "$TMP"' EXIT
 RAW="$TMP/raw.ndjson"          # final, de-duplicated dataset (step 1's output, step 2's input)
 JOBDIR="$TMP/jobs"; mkdir -p "$JOBDIR"
+
+# ---- coverage progress bar -------------------------------------------------------------------
+# Shows WHICH parts of the requested range are already fetched, not just an overall percentage:
+# a lone 10-minute leaf inside a 24-hour request shows up as its own small mark on the bar, in its
+# own position, using eighth-of-a-character blocks for finer resolution than one plain char/bucket
+# would give. Plain new log lines only (no \r redraw, no ANSI cursor movement) — this environment
+# has surprised us before (TZ handling, argv limits, kill not reaching child processes), and every
+# other line this script prints already works reliably in this Windows/Git-Bash setup the same way.
+BAR_WIDTH="${BAR_WIDTH:-50}"
+PROGRESS_STEP="${PROGRESS_STEP:-1}"   # only reprint once coverage advances by this many points
+TOTAL_SECONDS=$((END - START))
+COVERED_FILE="$TMP/covered.tsv"
+: > "$COVERED_FILE"
+LAST_PROGRESS_PCT=-100
+BLOCKS=(' ' '▏' '▎' '▍' '▌' '▋' '▊' '▉' '█')
+
+fmt_hms() { local s="$1"; printf '%dh%02dm' $((s / 3600)) $(((s % 3600) / 60)); }
+
+# mark_covered <s> <e>: records a resolved leaf window (fresh fetch or cache hit) and reprints the
+# bar once coverage has advanced by at least PROGRESS_STEP points since the last time it printed.
+mark_covered() {
+  local s="$1" e="$2" out levels_csv pct bar lvl
+  printf '%s\t%s\n' "$s" "$e" >> "$COVERED_FILE"
+  out=$(awk -v start="$START" -v total="$TOTAL_SECONDS" -v w="$BAR_WIDTH" -v file="$COVERED_FILE" '
+    BEGIN {
+      bw = total / w
+      while ((getline line < file) > 0) {
+        split(line, a, "\t")
+        ws = a[1] - start; we = a[2] - start
+        if (we > ws) covered_total += (we - ws)
+        b0 = int(ws / bw); b1 = int((we - 0.0001) / bw)
+        if (b1 >= w) b1 = w - 1
+        for (b = b0; b <= b1; b++) {
+          bs = b * bw; be = (b + 1) * bw
+          lo = (ws > bs) ? ws : bs
+          hi = (we < be) ? we : be
+          if (hi > lo) cov[b] += (hi - lo)
+        }
+      }
+      close(file)
+      line = ""
+      for (b = 0; b < w; b++) {
+        frac = (bw > 0) ? cov[b] / bw : 0
+        if (frac > 1) frac = 1
+        line = line int(frac * 8 + 0.5) ","
+      }
+      pct = (total > 0) ? covered_total / total * 100 : 100
+      printf "%s;%.1f;%d\n", line, pct, covered_total
+    }')
+  IFS=';' read -r levels_csv pct covered_total <<< "$out"
+  awk -v p="$pct" -v last="$LAST_PROGRESS_PCT" -v step="$PROGRESS_STEP" 'BEGIN{exit !(p-last>=step || p>=99.95)}' || return 0
+  local -a levels; IFS=',' read -ra levels <<< "$levels_csv"
+  bar=""
+  for lvl in "${levels[@]}"; do [ -n "$lvl" ] && bar+="${BLOCKS[$lvl]}"; done
+  log "  Progress [$bar] ${pct}%  ($(fmt_hms "$covered_total") / $(fmt_hms "$TOTAL_SECONDS"))"
+  LAST_PROGRESS_PCT="$pct"
+}
 
 # Local cache of already-fetched leaf windows, keyed by log group + the exact query text (so
 # editing the parsing rule can't silently serve stale rows) + the window's own start/end. Survives
@@ -248,6 +307,7 @@ launch_next() {
     n=$(awk 'END{print NR}' "$cache_file")
     cat "$cache_file" >> "$RAW.dup"
     log "  cache hit: $(fmt_local "$s") .. $(fmt_local "$e") ($n rows, no AWS call)"
+    mark_covered "$s" "$e"
     return 0   # doesn't touch INFLIGHT/PARALLEL at all, it's instant
   fi
   if [ -f "$split_file" ]; then
@@ -290,10 +350,13 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
       # skips getting here for the same s:e), so a later re-run can skip it entirely.
       jq -c "$ROWS_JQ" < "$piece" | tr -d '\r' | tee -a "$RAW.dup" > "$CACHE_KEY_DIR/${s}_${e}.ndjson"
       log "  wrote $n rows ($(fmt_local "$s") .. $(fmt_local "$e"))"
+      mark_covered "$s" "$e"
     fi
     rm -f "$piece"
   done
 done
+# force one final render, unless the last real leaf already landed on ~100% on its own
+awk -v p="$LAST_PROGRESS_PCT" 'BEGIN{exit !(p<99.95)}' && PROGRESS_STEP=0 mark_covered "$START" "$START"
 
 if [ ! -s "$RAW.dup" ]; then
   log "No matching lines in this window. Writing an empty CSV."
