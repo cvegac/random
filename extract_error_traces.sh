@@ -16,14 +16,10 @@
 #                    SERVICE_REGEX, OPERATION_REGEX, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
 set -euo pipefail
 
-# Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-
-# We run with --no-verify-ssl, so urllib3 warns on every call: silence it (aws_cli also filters stderr).
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"
-# The Python bundled with the aws cli defaults to cp1252 ('charmap') on Windows and crashes when a
-# log line has a character it cannot map. Force UTF-8.
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
+                                              # and crashes on log lines it can't map to that charset
 
 DEBUG="${DEBUG:-1}"                      # 0 = quiet, 1 = verbose logs + raw batch JSONs (default), 2 = also set -x
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
@@ -60,9 +56,8 @@ log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
 debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
 die()   { echo "Error: $*" >&2; exit 1; }
 
-# Every AWS call goes through here so --no-verify-ssl is always applied.
-# stderr is captured: urllib3 warning noise is dropped, real errors are shown and also
-# appended to $TMP/aws_errors.log. stdout passes through untouched.
+# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
+# stderr (real errors still print and log to $TMP/aws_errors.log).
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)

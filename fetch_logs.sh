@@ -15,14 +15,10 @@
 #                    DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
 set -euo pipefail
 
-# Git Bash on Windows rewrites "/aws/ecs/..." into a C:\... path; this prevents it.
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-
-# We run with --no-verify-ssl, so urllib3 warns on every call: silence it (aws_cli also filters stderr).
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"
-# The Python bundled with the aws cli defaults to cp1252 ('charmap') on Windows and crashes when a
-# log line has a character it cannot map. Force UTF-8.
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
+                                              # and crashes on log lines it can't map to that charset
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
@@ -70,9 +66,8 @@ fi
 
 # ---------------------------------------------------------------- helpers
 
-# Every AWS call goes through here so --no-verify-ssl is always applied.
-# stderr is captured: urllib3 warning noise is dropped, real errors are shown and also
-# appended to $TMP/aws_errors.log. stdout passes through untouched.
+# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
+# stderr (real errors still print and log to $TMP/aws_errors.log).
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -128,14 +123,11 @@ else
 | limit ${MAX_ROWS}"
 fi
 
-# jq: results[] -> CSV rows "colombia_time,message", skipping rows whose @ptr was already written
-# at the boundary of the previous piece (Insights time ranges are inclusive on both ends).
-# Reads piece.json and the seen-ptrs file concatenated on stdin (jq -s slurps both into [.0, .1]),
-# never as a --argjson/--slurpfile path argument: with MSYS_NO_PATHCONV=1 (needed for the log
-# group names above), a native jq.exe can't resolve a bare Unix path passed as an argument, and
-# the boundary @ptr list can also grow into the thousands in a busy log group, which blows past
-# the ~32K Windows command-line length limit if inlined as JSON text instead. `cat` is an
-# MSYS-native tool so it is unaffected by MSYS_NO_PATHCONV either way.
+# results[] -> CSV rows "colombia_time,message", skipping @ptr already seen at the previous piece's
+# boundary (Insights ranges are inclusive on both ends). piece.json + seen-ptrs file are read
+# concatenated on stdin (jq -s -> [.0, .1]), never as a --argjson/--slurpfile path: with
+# MSYS_NO_PATHCONV=1 a native jq.exe can't resolve a bare Unix path argument, and the @ptr list can
+# grow past the ~32K Windows command-line limit if inlined as text instead.
 ROWS_JQ='
   def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
   .[1] as $seen
