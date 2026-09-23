@@ -289,11 +289,45 @@ ROWS_JQ='
   | {ts: .["@timestamp"], ptr: (.["@ptr"] // null),
      rqid: .rquid, servicio: .servicio, paso: .Paso, tiempo: .Tiempo}'
 
+# ---- upfront cache inventory: consume whatever's already known before touching AWS at all ----
+# Recursively walks the SAME tree shape purely through local cache files (zero AWS calls): a
+# cached leaf feeds its data straight into the dataset and the bar; a cached split recurses into
+# its two children; anything not cached (yet) is left in $QUEUE for the real fetch loop below.
+# This is what makes a re-run show "here's what I already have, here's what's left" immediately —
+# instead of discovering it piecemeal, mixed in with live AWS calls, as the tree gets re-walked.
+scan_cache() {
+  local s="$1" e="$2" cache_file split_file mid
+  cache_file="$CACHE_KEY_DIR/${s}_${e}.ndjson"
+  split_file="$CACHE_KEY_DIR/${s}_${e}.split"
+  if [ -f "$cache_file" ]; then
+    cat "$cache_file" >> "$RAW.dup"
+    mark_covered "$s" "$e"
+    return 0
+  fi
+  if [ -f "$split_file" ]; then
+    mid=$(( (s + e) / 2 ))
+    scan_cache "$s" "$mid"
+    scan_cache "$mid" "$e"
+    return 0
+  fi
+  QUEUE+=("$s:$e")   # not cached (yet) -> genuinely needs a live AWS call
+}
+
+log "Checking the local cache before fetching anything from AWS..."
+QUEUE=()
+scan_cache "$START" "$END"
+if [ "$LAST_PROGRESS_PCT" = "-100" ]; then
+  log "  nothing usable cached yet for this exact range"
+elif awk -v p="$LAST_PROGRESS_PCT" 'BEGIN{exit !(p>=99.95)}'; then
+  log "  already have the full range cached from a previous run — nothing to fetch"
+else
+  log "  already have ${LAST_PROGRESS_PCT}% cached from a previous run — fetching the rest now"
+fi
+
 # ---- bounded-concurrency work queue --------------------------------------------------------
 # A window too big to fetch in one query (>= MAX_ROWS) is only discovered by querying it, so a
 # "probe" and a "real fetch" are the same job: on completion it either writes final rows, or
 # queues two new (smaller) windows. Up to PARALLEL jobs run at once.
-QUEUE=("$START:$END")
 declare -A INFLIGHT=()   # pid -> "piece_file:s:e"
 n_jobs=0
 
