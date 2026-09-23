@@ -36,16 +36,21 @@
 # chunk's tail" trick — instead every row keeps its @ptr and gets de-duplicated exactly, once, over
 # the whole collected dataset (simpler and more exact than the old 2-second-window heuristic).
 #
-# Every successfully-fetched window (a "leaf" that didn't hit the 10,000-row cap) is cached to
-# disk under CACHE_DIR, keyed by log group + the exact query text + that window's start/end. This
-# survives across runs (unlike the temp dir, which is always cleaned up): if AWS throws a transient
-# error partway through a long fetch — more likely now that several queries run at once — and the
-# script has to give up and die, re-running the exact same command skips every window it already
-# has cached instead of re-downloading the whole range from zero. Two more related hardenings:
-# transient AWS errors (ServiceUnavailableException, throttling, ...) are retried a few times with
-# backoff before giving up, and if the script does die, any OTHER windows still being fetched in
-# the background are killed outright (not left running as orphans that fail later, confusingly,
-# once the temp dir they were writing into is already gone).
+# Every window is cached to disk under CACHE_DIR (keyed by log group + the exact query text + that
+# window's start/end), and this survives across runs (unlike the temp dir, which is always cleaned
+# up) — BOTH kinds of window get cached, not just the ones with final data: a "leaf" that returned
+# rows under the cap, AND a window that overflowed and had to be split (recorded as a marker, since
+# the split point is always the same deterministic midpoint). Caching the split decision too is
+# what makes a re-run actually cheap: caching leaves alone would still force re-walking and
+# re-probing the ENTIRE tree of "did this overflow?" queries from the top on every retry, even with
+# every leaf's data already sitting on disk — for a wide, busy range that walk alone can be many
+# minutes of AWS calls before a single cache hit is even reached. With both cached, a full re-run
+# after everything was already discovered replays the whole tree from local files, no AWS calls at
+# all. If AWS throws a transient error partway through a fetch — more likely now that several
+# queries run at once — the script retries a few times with backoff before giving up, and only
+# re-fetches whatever wasn't already cached when it's run again. If the script does die, any OTHER
+# windows still being fetched in the background are killed outright (not left running as orphans
+# that fail later, confusingly, once the temp dir they were writing into is already gone).
 #
 # Usage:  ./query_nexus_traces.sh <log-group> "<start>" "<end>" [output.csv]
 #         (start/end are local time, offset TZ_OFFSET below; default -05:00 = Bogota)
@@ -234,15 +239,25 @@ declare -A INFLIGHT=()   # pid -> "piece_file:s:e"
 n_jobs=0
 
 launch_next() {
-  local item="${QUEUE[0]}" s e piece cache_file n
+  local item="${QUEUE[0]}" s e piece cache_file split_file mid n
   QUEUE=("${QUEUE[@]:1}")
   s="${item%%:*}"; e="${item##*:}"
   cache_file="$CACHE_KEY_DIR/${s}_${e}.ndjson"
+  split_file="$CACHE_KEY_DIR/${s}_${e}.split"
   if [ -f "$cache_file" ]; then
     n=$(awk 'END{print NR}' "$cache_file")
     cat "$cache_file" >> "$RAW.dup"
     log "  cache hit: $(fmt_local "$s") .. $(fmt_local "$e") ($n rows, no AWS call)"
     return 0   # doesn't touch INFLIGHT/PARALLEL at all, it's instant
+  fi
+  if [ -f "$split_file" ]; then
+    # this window is already KNOWN (from a previous run) to overflow — split is deterministic
+    # (same s,e -> same mid always), so re-probing it would just waste an AWS call to re-learn
+    # what's already on disk. Queue its two children directly instead.
+    mid=$(( (s + e) / 2 ))
+    log "  split cache hit: $(fmt_local "$s") .. $(fmt_local "$e") (known to overflow, no AWS call)"
+    QUEUE+=("$s:$mid" "$mid:$e")
+    return 0
   fi
   n_jobs=$((n_jobs + 1))
   piece="$JOBDIR/p${n_jobs}.json"
@@ -267,6 +282,7 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
     if [ "$n" -ge "$MAX_ROWS" ] && [ $((e - s)) -gt 1 ]; then
       mid=$(( (s + e) / 2 ))
       log "  $n rows = query limit, splitting: $(fmt_local "$s") | $(fmt_local "$mid") | $(fmt_local "$e")"
+      : > "$CACHE_KEY_DIR/${s}_${e}.split"   # remember: this window overflows, don't re-probe it later
       QUEUE+=("$s:$mid" "$mid:$e")
     else
       [ "$n" -lt "$MAX_ROWS" ] || log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
