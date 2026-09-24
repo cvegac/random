@@ -613,7 +613,7 @@
       "width": 24,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @message\n| filter @message like 'ERROR'\n| parse @message /<nombreOperacion>(?<nombreOperacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<msgRespuesta>(?<msgRespuesta>[^<]+)<\\/msgRespuesta>/\n| stats count(*) as CantidadErrores by nombreOperacion, msgRespuesta\n| sort CantidadErrores desc\n| limit 10000",
+        "query": "SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @message\n| filter @message like 'ERROR'\n| parse @message /<nombreOperacion>(?<nombreOperacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<msgRespuesta>(?<msgRespuesta>[^<]+)<\\/msgRespuesta>/\n| filter isPresent(msgRespuesta)\n| stats count(*) as CantidadErrores by nombreOperacion, msgRespuesta\n| sort CantidadErrores desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
