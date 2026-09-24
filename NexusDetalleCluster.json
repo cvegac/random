@@ -1,0 +1,197 @@
+{
+  "variables": [
+    {
+      "type": "pattern",
+      "pattern": "PREFIX_VAR",
+      "inputType": "select",
+      "id": "Cluster",
+      "label": "Cluster",
+      "defaultValue": "accountsws",
+      "visible": true,
+      "inputPopulationType": "custom",
+      "values": [
+        { "value": "accountsws", "label": "accountsws" },
+        { "value": "paymentsws", "label": "paymentsws" },
+        { "value": "credit-cardsws", "label": "credit-cardsws" },
+        { "value": "investmentsws", "label": "investmentsws" },
+        { "value": "productsws", "label": "productsws" },
+        { "value": "loansws", "label": "loansws" },
+        { "value": "clientsws", "label": "clientsws" },
+        { "value": "remittancesws", "label": "remittancesws" },
+        { "value": "acquiringws", "label": "acquiringws" },
+        { "value": "securityws", "label": "securityws" },
+        { "value": "insurancesw", "label": "insurancesw" }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "type": "log",
+      "x": 0,
+      "y": 4,
+      "width": 24,
+      "height": 5,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod)\n| stats \n    count(*) as cantidadReq,\n    sum(status < 300) as status2xx,\n    sum(status >= 400 and status < 500) as status4xx,\n    sum(status >= 500) as status5xx,\n    avg(responseLatency) as LatenciaPromedio\n    by resourcePath, httpMethod\n| sort resourcePath asc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "APIs Overview"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 14,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [], class: \"STANDARD\") |\nfields @timestamp, @message, @logStream, @log,responseLatency,status\n|display  \n  status >= 200 AND status < 300 as code200,\n  status >= 400 and status < 500 as code400, \n  status >= 500 as code500\n|stats \n  sum(code200) AS code2xx, \n  sum(code500) as code5xx, \n  sum(code400) as code4xx, \n  COUNT(*) AS totalRQ  by datefloor (@timestamp , 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "STATUS CODE API"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 14,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE '/aws/api/api_mcm_accounts' | SOURCE '/aws/api/api_client_management' | SOURCE '/aws/api/api_credit_card_management' | SOURCE '/aws/api/api_mcm_loans' | SOURCE '/aws/api/api_mcm_payments' | SOURCE '/aws/api/api_products_management' | fields @timestamp, @message, @logStream, @log, responseLatency,status\n|display  responseLatency,95 \n|filter resourcePath = \"{{API}}\"\n|stats pct (responseLatency,95) AS PCT95 , avg (responseLatency) as promedio  by datefloor (@timestamp , 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "title": "LATENCIA API",
+        "view": "timeSeries"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 38,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE '/aws/ecs/srv/accounts-debit-encumbrance-mngr' | SOURCE '/aws/ecs/srv/accounts-encumbrance-mngr' | SOURCE '/aws/ecs/srv/accounts-favorites-mngr' | SOURCE '/aws/ecs/srv/accounts-movements-mngr' | SOURCE '/aws/ecs/srv/accounts-pockets-mngr' | SOURCE '/aws/ecs/srv/accounts-terms-mngr' | SOURCE '/aws/ecs/srv/accounts-transfer-account-mngr' | SOURCE '/aws/ecs/srv/accounts-transfer-ach-mngr' | SOURCE '/aws/ecs/srv/accounts-transfer-wallet-mngr' | SOURCE '/aws/ecs/srv/clients-company-mngr' | SOURCE '/aws/ecs/srv/clients-mngr' | SOURCE '/aws/ecs/srv/clients-profile-mngr' | SOURCE '/aws/ecs/srv/credit-cards-advance-mngr' | SOURCE '/aws/ecs/srv/credit-cards-detail-mngr' | SOURCE '/aws/ecs/srv/credit-cards-movements-mngr' | SOURCE '/aws/ecs/srv/loans-drawdown-mngr' | SOURCE '/aws/ecs/srv/loans-rate-details-mngr' | SOURCE '/aws/ecs/srv/payments-agreements-mngr' | SOURCE '/aws/ecs/srv/payments-cvv-status-mngr' | SOURCE '/aws/ecs/srv/payments-dynamic-cvv-mngr' | SOURCE '/aws/ecs/srv/payments-favorites-mngr' | SOURCE '/aws/ecs/srv/payments-pse-pay-mngr' | SOURCE '/aws/ecs/srv/payments-scheduled-mngr' | SOURCE '/aws/ecs/srv/payments-soap-proxy-mngr' | SOURCE '/aws/ecs/srv/products-balance-mngr' | SOURCE '/aws/ecs/srv/products-balance-partners-mngr' | SOURCE '/aws/ecs/srv/products-mngr' | SOURCE '/aws/ecs/srv/products-partners-mngr' | fields @timestamp, @message, @logStream, @log\n|filter @message like \"AUDIT\" \n|parse @message /RqUid=(?<rq_uid>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /requestUid=(?<rq_uid1>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /X-FnctName=(?<fnctName>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /X-Name=(?<Name>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message \"::AUDIT::*::\" as TipoOperacion\n|parse @message \"::AUDIT::*\" as mensaje\n|display  @timestamp , coalesce(rq_uid , rq_uid1) as Rquid , fnctName ,  Name ,  TipoOperacion , mensaje \n|filter Rquid like \"{{rquid}}\"\n| sort Rquid desc\n| limit 100",
+        "region": "us-east-1",
+        "stacked": false,
+        "title": "AUDITORIAS API",
+        "view": "table"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 9,
+      "width": 24,
+      "height": 5,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, @message, @logStream, @log |filter @message like \"::AUDIT::REQ::\" or @message like \"::AUDIT::RESP::\"\n|parse @message \"::HTTPCODE::*\" as CodesHTTP\n|parse @message \"::[X-RqUid=*,X-Name=PN-\" as RqUidReq\n|parse @message \"X-Referer=*,X-RqUid=*,X\" as ApiCliente , RquidResp\n|parse @message /BODY::(?<body>\\{.*\\})/ \n|display jsonParse(body) as body1\n    |display CodesHTTP  , body1.error.code as code  , body1.error.system as System , body1.error.message as ErrorMessage , body1.from.productType  , coalesce(RquidResp,RqUidReq) as RqUid , ApiCliente , substr(@log,13) as logroup\n| filter isPresent(body1.error.message)\n|stats count (*) as CantReq  by  body1.error.message , body1.error.system ,  logroup\n| sort CantReq desc , logroup asc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "SUMATORIA EVENTOS APIS"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 26,
+      "width": 20,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: '/aws/ecs/srv/${Cluster}', class: \"STANDARD\") | fields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp ,substr (@log , 26 , 30)  as Adaptador \n|filter Adaptador like \"{{adaptador}}\" \n|stats pct(TiempoAdp , 95) as pct95 , avg (TiempoAdp)  by datefloor (@timestamp,1m) \n\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "title": "LATENCIA  ADAPTADOR",
+        "view": "timeSeries"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 26,
+      "width": 4,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: '/aws/ecs/srv/${Cluster}', class: \"STANDARD\") | fields @timestamp, @message, @logStream, @log\n\n\n|display substr (@log , 26 , 30)  as Adaptador \n\n|stats count_distinct (@log)  by Adaptador\n\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "ADAPTADORES EN USO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 8,
+      "y": 0,
+      "width": 4,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats \n    (sum(status >= 400 AND status < 500) * 100 / count(*)) as value\n| sort resourcePath asc",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% error 4XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 0,
+      "width": 4,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats \n    count(*) as cantidadReq\n| sort resourcePath asc",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "TotalRequest"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 0,
+      "width": 4,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats \n    (sum(status >= 500) * 100 / count(*)) as value\n| sort resourcePath asc",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% error 5XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 0,
+      "width": 4,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/api/api_PREFIX_VAR\"], class: \"STANDARD\") |\nfields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats \n    (sum(status >= 200 AND status < 300) * 100 / count(*)) as value\n| sort resourcePath asc",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% code 2XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 20,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE '/aws/api/api_mcm_accounts' | SOURCE '/aws/api/api_client_management' | SOURCE '/aws/api/api_credit_card_management' | SOURCE '/aws/api/api_mcm_loans' | SOURCE '/aws/api/api_mcm_payments' | SOURCE '/aws/api/api_products_management' | fields @timestamp, @message, @logStream, @log, responseLatency,status\n|display  responseLatency,95 \n|filter resourcePath = \"{{API}}\"\n|stats pct (responseLatency,95) AS PCT95 , avg (responseLatency) as promedio  by datefloor (@timestamp , 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "title": "LATENCIA API",
+        "view": "timeSeries"
+      }
+    }
+  ]
+}
