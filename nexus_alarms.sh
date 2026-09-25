@@ -7,8 +7,10 @@
 #         DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
 #
 # The target account is whatever the active AWS_PROFILE points to; this script deliberately does not check it.
-# Every name starts with "nexus-" and every metric lives under "Nexus/*", so a re-run overwrites instead of
-# duplicating, and "delete" removes exactly what "create" made. Thresholds are starting points to be tuned.
+# It runs the same in any environment (lab, prod): log groups, gateway traffic or ECS clusters that don't exist
+# there are reported and skipped. Every name starts with "nexus-" and every metric lives under "Nexus/*", so a
+# re-run overwrites instead of duplicating, and "delete" removes exactly what "create" made. Thresholds are
+# starting points to be tuned.
 #
 # Requires: aws cli v2, jq. Optional env vars: AWS_REGION, DRY_RUN (default 1), INCLUDE_CPU_MEM (default 0,
 #           adds CPU/memory alarms per ECS service: ~4 alarm metrics each, the most expensive part).
@@ -61,6 +63,26 @@ mutate() {
   log "  done: $desc"
 }
 
+# Keeps only the log groups that exist in this account, so the same run works in lab and prod.
+declare -A EXISTS=()
+load_existing_groups() {
+  local p lg
+  for p in /aws/api/api_ /aws/ecs/srv/; do
+    for lg in $(aws_cli logs describe-log-groups --region "$REGION" --log-group-name-prefix "$p" \
+                  --query 'logGroups[].logGroupName' --output text | tr -d '\r'); do
+      EXISTS[$lg]=1
+    done
+  done
+}
+keep_existing() {  # keep_existing <array name>
+  local -n groups="$1"
+  local kept=() lg
+  for lg in "${groups[@]}"; do
+    if [ -n "${EXISTS[$lg]:-}" ]; then kept+=("$lg"); else log "  $lg does not exist here, skipping it"; fi
+  done
+  groups=("${kept[@]}")
+}
+
 # ---------------------------------------------------------------- pattern self-test (read-only)
 
 # expect <pattern> <expected matches: 1|0> <sample message>. test-metric-filter touches no log group.
@@ -80,6 +102,8 @@ S_503="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AU
 S_MAP="2026-01-01 00:00:00.000000 WARN  [x.GenericExceptionMapper] (executor-thread-1) HttpCode:: 400::Exception: 400 :: Sample .RESPONSE: x ::HEAD::[X-RqUid=$RQ]"
 S_MNGR_ERR="2026-01-01 00:00:00,000 ERROR [dt] [$RQ][ERROR !][ sample ]"
 S_MNGR_INFO="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <msgRespuesta>ERROR EN LA VALIDACION</msgRespuesta> ][AuditLog]"
+S_SOAP_M="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><DataHeader><nombreOperacion>X</nombreOperacion><caracterAceptacion>M</caracterAceptacion><codMsgRespuesta>1</codMsgRespuesta></DataHeader></Response> ][AuditLog]"
+S_SOAP_B="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><DataHeader><nombreOperacion>X</nombreOperacion><caracterAceptacion>B</caracterAceptacion><codMsgRespuesta>0</codMsgRespuesta></DataHeader></Response> ][AuditLog]"
 
 # Regex only where needed: CloudWatch allows at most 5 regex filter patterns per log group (4 used here).
 P_RESP='%::AUDIT::RESP::%'
@@ -88,6 +112,9 @@ P_412='%::HTTPCODE::412%'
 P_5XX='%::HTTPCODE::5[0-9][0-9]%'
 P_MAP='"GenericExceptionMapper" "HttpCode::"'
 P_MNGR_ERR='"[ERROR"'   # the level marker may carry an emoji after ERROR; "[ERROR" matches either way
+# SOAP response the channel receives: caracterAceptacion B = accepted, M = rejected (business or technical)
+P_CANAL_RESP='"<caracterAceptacion>"'
+P_CANAL_REJ='"<caracterAceptacion>M</caracterAceptacion>"'
 
 test_log_patterns() {
   log "Testing adapter and mngr patterns against synthetic lines (read-only)"
@@ -97,19 +124,27 @@ test_log_patterns() {
   expect "$P_5XX" 1 "$S_503"; expect "$P_5XX" 0 "$S_412"; expect "$P_5XX" 0 "$S_200"
   expect "$P_MAP" 1 "$S_MAP"; expect "$P_MAP" 0 "$S_200"
   expect "$P_MNGR_ERR" 1 "$S_MNGR_ERR"; expect "$P_MNGR_ERR" 0 "$S_MNGR_INFO"
+  expect "$P_CANAL_RESP" 1 "$S_SOAP_M"; expect "$P_CANAL_RESP" 1 "$S_SOAP_B"; expect "$P_CANAL_RESP" 0 "$S_MNGR_INFO"
+  expect "$P_CANAL_REJ" 1 "$S_SOAP_M"; expect "$P_CANAL_REJ" 0 "$S_SOAP_B"
   log "  all patterns behave as expected"
 }
 
 # The gateway access-log format isn't known up front: learn it from one real recent event and pick
 # numeric or string JSON comparisons to match. The event is only used in memory, never printed or saved.
-GW_LATENCY=0
+GW_ENABLED=0; GW_LATENCY=0
 learn_gateway_patterns() {
-  local lg="${API_GROUPS[0]}" start msg stype ltype s5 s2
-  log "Learning the gateway access-log format from one recent event of $lg (read-only)"
+  local lg="" candidate start msg="" stype ltype s5 s2
+  log "Learning the gateway access-log format from one recent event (read-only)"
   start=$(( ($(date +%s) - 86400) * 1000 ))
-  msg=$(aws_cli logs filter-log-events --region "$REGION" --log-group-name "$lg" --start-time "$start" \
-          --limit 1 --query 'events[0].message' --output text | tr -d '\r')
-  [ -n "$msg" ] && [ "$msg" != "None" ] || die "no event in the last 24h in $lg to learn the format from"
+  for candidate in "${API_GROUPS[@]}"; do
+    msg=$(aws_cli logs filter-log-events --region "$REGION" --log-group-name "$candidate" --start-time "$start" \
+            --limit 1 --query 'events[0].message' --output text | tr -d '\r')
+    if [ -n "$msg" ] && [ "$msg" != "None" ]; then lg="$candidate"; break; fi
+  done
+  if [ -z "$lg" ]; then
+    log "  WARNING: no gateway traffic in the last 24h here: skipping gateway metric filters and alarms"
+    return 0
+  fi
   jq -e 'type == "object" and has("status")' <<<"$msg" > /dev/null 2>&1 \
     || die "$lg is not JSON with a status field; the gateway filters need a hand-written pattern"
   stype=$(jq -r '.status | type' <<<"$msg")
@@ -127,7 +162,8 @@ learn_gateway_patterns() {
   else
     log "  WARNING: responseLatency is $ltype, not a number: skipping the gateway latency metric and alarm"
   fi
-  log "  gateway status is a $stype; patterns chosen and tested"
+  GW_ENABLED=1
+  log "  learned from $lg: status is a $stype; patterns chosen and tested"
 }
 
 # ---------------------------------------------------------------- create
@@ -161,12 +197,14 @@ create_all() {
   test_log_patterns
   learn_gateway_patterns
 
-  log "Metric filters: gateway (${#API_GROUPS[@]} groups)"
-  for lg in "${API_GROUPS[@]}"; do
-    put_filter "$lg" gateway-requests "$P_GW_REQ" Nexus/Gateway GatewayRequests
-    put_filter "$lg" gateway-5xx "$P_GW_5XX" Nexus/Gateway Gateway5xx
-    [ "$GW_LATENCY" = 0 ] || put_filter "$lg" gateway-latency "$P_GW_LAT" Nexus/Gateway GatewayLatency '$.responseLatency'
-  done
+  if [ "$GW_ENABLED" = 1 ]; then
+    log "Metric filters: gateway (${#API_GROUPS[@]} groups)"
+    for lg in "${API_GROUPS[@]}"; do
+      put_filter "$lg" gateway-requests "$P_GW_REQ" Nexus/Gateway GatewayRequests
+      put_filter "$lg" gateway-5xx "$P_GW_5XX" Nexus/Gateway Gateway5xx
+      [ "$GW_LATENCY" = 0 ] || put_filter "$lg" gateway-latency "$P_GW_LAT" Nexus/Gateway GatewayLatency '$.responseLatency'
+    done
+  fi
 
   log "Metric filters: adapters (${#ADAPTER_GROUPS[@]} groups)"
   for lg in "${ADAPTER_GROUPS[@]}"; do
@@ -180,27 +218,37 @@ create_all() {
   log "Metric filters: mngr (${#MNGR_GROUPS[@]} groups)"
   for lg in "${MNGR_GROUPS[@]}"; do
     put_filter "$lg" mngr-errors "$P_MNGR_ERR" Nexus/Mngr MngrErrors
+    put_filter "$lg" channel-responses "$P_CANAL_RESP" Nexus/Mngr ChannelResponses
+    put_filter "$lg" channel-rejections "$P_CANAL_REJ" Nexus/Mngr ChannelRejections
   done
 
   log "Alarms (all with actions disabled)"
-  sum_alarm gateway-5xx "API Gateway 5XX across the 11 ws APIs" Nexus/Gateway Gateway5xx 10
-  if [ "$GW_LATENCY" = 1 ]; then
-    alarm gateway-latency-p95 "API Gateway p95 latency (ms) across the 11 ws APIs" \
-      --namespace Nexus/Gateway --metric-name GatewayLatency --extended-statistic p95 --period 300 \
-      --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 3000 \
-      --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching
+  if [ "$GW_ENABLED" = 1 ]; then
+    sum_alarm gateway-5xx "API Gateway 5XX across the ws APIs" Nexus/Gateway Gateway5xx 10
+    if [ "$GW_LATENCY" = 1 ]; then
+      alarm gateway-latency-p95 "API Gateway p95 latency (ms) across the ws APIs" \
+        --namespace Nexus/Gateway --metric-name GatewayLatency --extended-statistic p95 --period 300 \
+        --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 3000 \
+        --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching
+    fi
+    alarm gateway-traffic-drop "Gateway traffic below its anomaly band (the model needs ~2 weeks of data)" \
+      --evaluation-periods 3 --datapoints-to-alarm 2 --comparison-operator LessThanLowerThreshold \
+      --threshold-metric-id band --treat-missing-data breaching \
+      --metrics "[$(metric_stat req Nexus/Gateway GatewayRequests | sed 's/"ReturnData":false/"ReturnData":true/'),{\"Id\":\"band\",\"Expression\":\"ANOMALY_DETECTION_BAND(req, 2)\",\"ReturnData\":true}]"
   fi
-  alarm gateway-traffic-drop "Gateway traffic below its anomaly band (the model needs ~2 weeks of data)" \
-    --evaluation-periods 3 --datapoints-to-alarm 2 --comparison-operator LessThanLowerThreshold \
-    --threshold-metric-id band --treat-missing-data breaching \
-    --metrics "[$(metric_stat req Nexus/Gateway GatewayRequests | sed 's/"ReturnData":false/"ReturnData":true/'),{\"Id\":\"band\",\"Expression\":\"ANOMALY_DETECTION_BAND(req, 2)\",\"ReturnData\":true}]"
   alarm adapters-real-error-pct "% of adapter responses that are neither 200 nor 412 (412 = business answer); only with >50 responses" \
     --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 5 \
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Adapters AdapterResponses),$(metric_stat ok Nexus/Adapters AdapterResponses200),$(metric_stat biz Nexus/Adapters AdapterResponses412),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, (total - ok - biz) * 100 / total, 0)\",\"Label\":\"real error %\",\"ReturnData\":true}]"
   sum_alarm adapters-backend-5xx "Adapter responses with HTTP 5xx from the backend" Nexus/Adapters AdapterResponses5xx 5
   sum_alarm adapters-mapping-errors "GenericExceptionMapper errors in the adapters" Nexus/Adapters AdapterMappingErrors 10
-  sum_alarm mngr-errors "[ERROR lines in the 11 ws mngr" Nexus/Mngr MngrErrors 20
+  sum_alarm mngr-errors "[ERROR lines in the ws mngr" Nexus/Mngr MngrErrors 20
+  # M mixes business answers and technical errors, so its normal level is well above 0: calibrate the
+  # threshold with the "% rechazo al canal (M)" dashboard widget before enabling this one.
+  alarm channel-rejection-pct "% of SOAP responses to the channel with caracterAceptacion M; only with >50 responses" \
+    --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 40 \
+    --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
+    --metrics "[$(metric_stat total Nexus/Mngr ChannelResponses),$(metric_stat rej Nexus/Mngr ChannelRejections),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, rej * 100 / total, 0)\",\"Label\":\"channel rejection %\",\"ReturnData\":true}]"
 
   create_ecs_alarms
   log "Done. Review in CloudWatch > Alarms (filter by \"$PREFIX\"); enable with: aws cloudwatch enable-alarm-actions --alarm-names <name>"
@@ -261,7 +309,15 @@ command -v jq  > /dev/null || die "jq not found"
 [ "$DRY_RUN" = 1 ] && log "DRY-RUN: patterns are tested and the plan printed, nothing is created or deleted (DRY_RUN=0 to apply)"
 log "Region $REGION, account from the active AWS_PROFILE"
 
-case "${1:-}" in
+case "${1:-}" in create|delete) ;; *) die "usage: $0 create|delete   (DRY_RUN=0 to apply)" ;; esac
+log "Checking which log groups exist in this account"
+load_existing_groups
+keep_existing API_GROUPS
+keep_existing ADAPTER_GROUPS
+keep_existing MNGR_GROUPS
+log "  using ${#API_GROUPS[@]} gateway, ${#ADAPTER_GROUPS[@]} adapter and ${#MNGR_GROUPS[@]} mngr log groups"
+
+case "$1" in
   create) create_all ;;
   delete) delete_all ;;
   *) die "usage: $0 create|delete   (DRY_RUN=0 to apply)" ;;
