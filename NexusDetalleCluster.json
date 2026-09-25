@@ -65,7 +65,7 @@
       "width": 24,
       "height": 2,
       "properties": {
-        "markdown": "## NexusDetalleCluster: detalle del cluster seleccionado\nMismas filas que [GeneralNexus](#dashboards:name=GeneralNexus), acotadas al cluster del selector. **Ojo:** el HTTP del gateway no refleja errores SOAP; la respuesta real está en la fila 2. Servicio o rquid puntual: [NexusDetalleServicio](#dashboards:name=NexusDetalleServicio)."
+        "markdown": "## NexusDetalleCluster\n[General](#dashboards:name=GeneralNexus) · [Servicio](#dashboards:name=NexusDetalleServicio)"
       }
     },
     {
@@ -75,7 +75,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 1. API Gateway del cluster"
+        "markdown": "### 1. API Gateway"
       }
     },
     {
@@ -103,7 +103,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 2XX (gateway)"
+        "title": "% HTTP 2XX"
       }
     },
     {
@@ -117,7 +117,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 4XX (gateway)"
+        "title": "% HTTP 4XX"
       }
     },
     {
@@ -131,7 +131,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 5XX (gateway)"
+        "title": "% HTTP 5XX"
       }
     },
     {
@@ -159,7 +159,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
-        "title": "STATUS CODE API (HTTP gateway)"
+        "title": "STATUS CODE API"
       }
     },
     {
@@ -197,7 +197,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 2. Adaptadores del cluster: respuesta real del backend. 200 = OK · 412 = negocio · otro = error"
+        "markdown": "### 2. Adaptadores (200 OK · 412 negocio · otro error)"
       }
     },
     {
@@ -253,7 +253,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% error (otros códigos)"
+        "title": "% error"
       }
     },
     {
@@ -309,7 +309,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES TÉCNICOS DE MAPEO (GenericExceptionMapper)"
+        "title": "ERRORES DE MAPEO"
       }
     },
     {
@@ -375,7 +375,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 3. Proxy WS / ESB del cluster (mngr)"
+        "markdown": "### 3. Proxy WS / ESB"
       }
     },
     {

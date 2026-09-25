@@ -5,25 +5,25 @@
       "x": 0,
       "y": 0,
       "width": 24,
-      "height": 3,
+      "height": 2,
       "properties": {
-        "markdown": "## GeneralNexus: cómo leer este tablero\n**Ojo:** Stratus es SOAP y la capa REST responde **HTTP 200 aunque el backend falle**. El % 2XX del gateway NO es tasa de éxito: el error real está en la fila **2. Adaptadores**.\n\nFlujo: 1) ¿cae el tráfico o hay 5XX en el gateway? 2) ¿suben los errores del adaptador? 3) sacá un rquid de *RQUIDS CON ERROR 4XX/5XX* y bajá al detalle. Detalle por API: [NexusDetalleCluster](#dashboards:name=NexusDetalleCluster) · Análisis masivo: `./summarize_errors.sh \"<inicio>\" \"<fin>\"`"
+        "markdown": "## GeneralNexus\nSOAP responde HTTP 200 aunque falle: el error real está en la fila 2. Detalle: [Cluster](#dashboards:name=NexusDetalleCluster)"
       }
     },
     {
       "type": "text",
       "x": 0,
-      "y": 3,
+      "y": 2,
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 1. API Gateway: tráfico y HTTP (no refleja errores de negocio SOAP)"
+        "markdown": "### 1. API Gateway"
       }
     },
     {
       "type": "log",
       "x": 0,
-      "y": 4,
+      "y": 3,
       "width": 5,
       "height": 4,
       "properties": {
@@ -37,7 +37,7 @@
     {
       "type": "log",
       "x": 5,
-      "y": 4,
+      "y": 3,
       "width": 5,
       "height": 4,
       "properties": {
@@ -45,13 +45,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 2XX (gateway)"
+        "title": "% HTTP 2XX"
       }
     },
     {
       "type": "log",
       "x": 10,
-      "y": 4,
+      "y": 3,
       "width": 5,
       "height": 4,
       "properties": {
@@ -59,13 +59,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 4XX (gateway)"
+        "title": "% HTTP 4XX"
       }
     },
     {
       "type": "log",
       "x": 15,
-      "y": 4,
+      "y": 3,
       "width": 5,
       "height": 4,
       "properties": {
@@ -73,13 +73,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 5XX (gateway)"
+        "title": "% HTTP 5XX"
       }
     },
     {
       "type": "log",
       "x": 20,
-      "y": 4,
+      "y": 3,
       "width": 4,
       "height": 4,
       "properties": {
@@ -93,7 +93,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 8,
+      "y": 7,
       "width": 12,
       "height": 6,
       "properties": {
@@ -101,13 +101,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
-        "title": "STATUS CODE API (HTTP gateway)"
+        "title": "STATUS CODE API"
       }
     },
     {
       "type": "log",
       "x": 12,
-      "y": 8,
+      "y": 7,
       "width": 12,
       "height": 6,
       "properties": {
@@ -121,7 +121,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 14,
+      "y": 13,
       "width": 24,
       "height": 6,
       "properties": {
@@ -135,7 +135,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 20,
+      "y": 19,
       "width": 24,
       "height": 8,
       "properties": {
@@ -149,17 +149,17 @@
     {
       "type": "text",
       "x": 0,
-      "y": 28,
+      "y": 27,
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 2. Adaptadores: respuesta real del backend (AUDIT::RESP). 200 = OK · 412 = negocio · otro = error"
+        "markdown": "### 2. Adaptadores (200 OK · 412 negocio · otro error)"
       }
     },
     {
       "type": "log",
       "x": 0,
-      "y": 29,
+      "y": 28,
       "width": 6,
       "height": 4,
       "properties": {
@@ -173,7 +173,7 @@
     {
       "type": "log",
       "x": 6,
-      "y": 29,
+      "y": 28,
       "width": 6,
       "height": 4,
       "properties": {
@@ -187,7 +187,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 29,
+      "y": 28,
       "width": 6,
       "height": 4,
       "properties": {
@@ -201,7 +201,7 @@
     {
       "type": "log",
       "x": 18,
-      "y": 29,
+      "y": 28,
       "width": 6,
       "height": 4,
       "properties": {
@@ -209,13 +209,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% error (otros códigos)"
+        "title": "% error"
       }
     },
     {
       "type": "log",
       "x": 0,
-      "y": 33,
+      "y": 32,
       "width": 24,
       "height": 6,
       "properties": {
@@ -229,7 +229,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 39,
+      "y": 38,
       "width": 12,
       "height": 8,
       "properties": {
@@ -243,7 +243,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 39,
+      "y": 38,
       "width": 12,
       "height": 8,
       "properties": {
@@ -257,7 +257,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 47,
+      "y": 46,
       "width": 12,
       "height": 8,
       "properties": {
@@ -265,13 +265,13 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES TÉCNICOS DE MAPEO (GenericExceptionMapper)"
+        "title": "ERRORES DE MAPEO"
       }
     },
     {
       "type": "log",
       "x": 12,
-      "y": 47,
+      "y": 46,
       "width": 12,
       "height": 8,
       "properties": {
@@ -285,7 +285,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 55,
+      "y": 54,
       "width": 16,
       "height": 6,
       "properties": {
@@ -299,7 +299,7 @@
     {
       "type": "log",
       "x": 16,
-      "y": 55,
+      "y": 54,
       "width": 8,
       "height": 6,
       "properties": {
@@ -313,7 +313,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 61,
+      "y": 60,
       "width": 24,
       "height": 6,
       "properties": {
@@ -327,17 +327,17 @@
     {
       "type": "text",
       "x": 0,
-      "y": 67,
+      "y": 66,
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 3. Proxy WS / ESB (mngr): qué recibió el canal y dónde se va el tiempo"
+        "markdown": "### 3. Proxy WS / ESB"
       }
     },
     {
       "type": "log",
       "x": 0,
-      "y": 68,
+      "y": 67,
       "width": 24,
       "height": 6,
       "properties": {
@@ -357,7 +357,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 74,
+      "y": 73,
       "width": 12,
       "height": 8,
       "properties": {
@@ -371,7 +371,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 74,
+      "y": 73,
       "width": 12,
       "height": 8,
       "properties": {
@@ -385,7 +385,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 82,
+      "y": 81,
       "width": 24,
       "height": 8,
       "properties": {
@@ -399,7 +399,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 90,
+      "y": 89,
       "width": 12,
       "height": 7,
       "properties": {
@@ -413,7 +413,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 90,
+      "y": 89,
       "width": 12,
       "height": 7,
       "properties": {
@@ -427,17 +427,17 @@
     {
       "type": "text",
       "x": 0,
-      "y": 97,
+      "y": 96,
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 4. Infra ECS (Container Insights)"
+        "markdown": "### 4. Infra ECS"
       }
     },
     {
       "type": "metric",
       "x": 0,
-      "y": 98,
+      "y": 97,
       "width": 13,
       "height": 9,
       "properties": {
@@ -531,7 +531,7 @@
     {
       "type": "metric",
       "x": 13,
-      "y": 98,
+      "y": 97,
       "width": 11,
       "height": 9,
       "properties": {

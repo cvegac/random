@@ -83,7 +83,7 @@
       "width": 24,
       "height": 2,
       "properties": {
-        "markdown": "## NexusDetalleServicio: un servicio y sus rquid\nElegí el **Cluster**, escribí el **Servicio** como aparece en el resourcePath sin `/ESBService/` (ej: `ConsultaBolsillos`) y, para la fila 4, pegá un **Rquid** (sacalo de *RQUIDS CON ERROR*). Volver: [NexusDetalleCluster](#dashboards:name=NexusDetalleCluster) · [GeneralNexus](#dashboards:name=GeneralNexus)"
+        "markdown": "## NexusDetalleServicio\nServicio sin `/ESBService/` (ej: `ConsultaBolsillos`); Rquid para la fila 4. [Cluster](#dashboards:name=NexusDetalleCluster) · [General](#dashboards:name=GeneralNexus)"
       }
     },
     {
@@ -93,7 +93,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 1. API Gateway del servicio"
+        "markdown": "### 1. API Gateway"
       }
     },
     {
@@ -121,7 +121,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 2XX (gateway)"
+        "title": "% HTTP 2XX"
       }
     },
     {
@@ -135,7 +135,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 4XX (gateway)"
+        "title": "% HTTP 4XX"
       }
     },
     {
@@ -149,7 +149,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% HTTP 5XX (gateway)"
+        "title": "% HTTP 5XX"
       }
     },
     {
@@ -177,7 +177,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
-        "title": "STATUS CODE API (HTTP gateway)"
+        "title": "STATUS CODE API"
       }
     },
     {
@@ -215,7 +215,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 2. Adaptador del servicio: 200 = OK · 412 = negocio · otro = error"
+        "markdown": "### 2. Adaptadores (200 OK · 412 negocio · otro error)"
       }
     },
     {
@@ -271,7 +271,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
-        "title": "% error (otros códigos)"
+        "title": "% error"
       }
     },
     {
@@ -313,7 +313,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES TÉCNICOS DE MAPEO (GenericExceptionMapper)"
+        "title": "ERRORES DE MAPEO"
       }
     },
     {
@@ -337,7 +337,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 3. Proxy WS / ESB del servicio"
+        "markdown": "### 3. Proxy WS / ESB"
       }
     },
     {
@@ -375,7 +375,7 @@
       "width": 24,
       "height": 1,
       "properties": {
-        "markdown": "### 4. Rquid: traza completa (pegá un rquid en el selector de arriba)"
+        "markdown": "### 4. Traza por rquid"
       }
     },
     {
@@ -389,7 +389,7 @@
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "TRAZA RQUID (mngr + adaptadores)"
+        "title": "TRAZA RQUID"
       }
     },
     {
