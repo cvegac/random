@@ -127,18 +127,21 @@ log "Step 0: searching GenericExceptionMapper exceptions in ${#ADAPTER_GROUPS[@]
 read -r -d '' q0 <<'EOF' || true
 fields @message
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
-| parse @message /Exception:\s*(?<errorMsg>\d+\s*::.+?)\s*::HEAD::/
+| parse @message /Exception:\s*(?<code>\d+)\s*::\s*(?<errorMsg>[^.]*[^.\s])/
+| parse @message /3=(?<field>[A-Za-z0-9_.]+)\s*::HEAD::/
 | parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\]]+)/
 | parse @message /X-Name=(?<channel>[^,\]]+)/
-| stats count(*) as total by errorMsg, service, channel
+| stats count(*) as total by code, errorMsg, field, service, channel
 | sort total desc
 | limit 10000
 EOF
+# errorMsg stops at the first "." on purpose: what follows (".RESPONSE: ... 1=...") is raw backend data with
+# customer PII, and it is unique per request, so grouping by it would count every exception separately.
 
 run_query "$q0" "$START" "$END" "${ADAPTER_GROUPS[@]}" > "$TMP/0_exceptions.json"
 {
-  echo "count,error_message,service,channel"
-  jq -r "$FLAT"' | [(.total|tonumber), .errorMsg, .service, .channel] | @csv' \
+  echo "count,code,error_message,field,service,channel"
+  jq -r "$FLAT"' | [(.total|tonumber), .code, .errorMsg, .field, .service, .channel] | @csv' \
     < "$TMP/0_exceptions.json"
 } | tr -d '\r' > "$OUT_DIR/exceptions_summary.csv"
 log "  -> $OUT_DIR/exceptions_summary.csv ($(($(awk 'END{print NR}' "$OUT_DIR/exceptions_summary.csv") - 1)) group(s))"
