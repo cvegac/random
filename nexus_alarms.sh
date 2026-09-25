@@ -6,6 +6,8 @@
 #
 # Usage:  ./nexus_alarms.sh create                 dry-run (default): tests patterns, prints the plan, creates nothing
 #         DRY_RUN=0 ./nexus_alarms.sh create       applies it
+#         DRY_RUN=0 ./nexus_alarms.sh dashboard    rebuilds only the dashboard; alarms and filters are left untouched,
+#                                                  so thresholds tuned by hand in the console survive
 #         DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
 #
 # The target account is whatever the AWS credentials in the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
@@ -28,7 +30,6 @@ DRY_RUN="${DRY_RUN:-1}"
 INCLUDE_CPU_MEM="${INCLUDE_CPU_MEM:-0}"
 PREFIX="nexus-"
 DASHBOARD="NexusAlarmas"
-ECS_TASKS=()   # "cluster|service" of every ws ECS service found, for the dashboard's task-count graph
 
 WS=(accountsws acquiringws clientsws credit-cardsws insurancesws investmentsws loansws paymentsws productsws remittancesws securityws)
 API_GROUPS=(); MNGR_GROUPS=()
@@ -267,12 +268,12 @@ create_dashboard() {
   local alarms tasks body n_svc n_ecs
   log "Dashboard $DASHBOARD, from the $PREFIX* alarms that exist now"
   alarms=$(aws_cli cloudwatch describe-alarms --region "$REGION" --alarm-name-prefix "$PREFIX" \
-             --query 'MetricAlarms[].{name: AlarmName, arn: AlarmArn}' --output json | tr -d '\r')
-  if [ "${#ECS_TASKS[@]}" -gt 0 ]; then
-    tasks=$(printf '%s\n' "${ECS_TASKS[@]}" | jq -R 'split("|") | {cluster: .[0], service: .[1]}' | jq -s -c .)
-  else
-    tasks='[]'
-  fi
+             --query 'MetricAlarms[].{name: AlarmName, arn: AlarmArn, metric: MetricName, dims: Dimensions}' \
+             --output json | tr -d '\r')
+  # the task-count graph lists the same services the ECS task alarms watch, read from their dimensions
+  tasks=$(jq -c '[.[] | select(.metric == "RunningTaskCount")
+                  | {cluster: (.dims[] | select(.Name == "ClusterName") | .Value),
+                     service: (.dims[] | select(.Name == "ServiceName") | .Value)}] | sort_by(.service)' <<<"$alarms")
   n_svc=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p) | not)] | length' <<<"$alarms")
   n_ecs=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p))] | length' <<<"$alarms")
   if [ $((n_svc + n_ecs)) -eq 0 ]; then
@@ -302,7 +303,7 @@ create_dashboard() {
                                                    "ServiceName", .service, {label: .service}] ]}}
             else empty end ]
       )}' <<<"$alarms")
-  mutate "dashboard $DASHBOARD: $n_svc Nexus alarms (+1 graph each), $n_ecs ECS alarms, ${#ECS_TASKS[@]} services in the task graph" \
+  mutate "dashboard $DASHBOARD: $n_svc Nexus alarms (+1 graph each), $n_ecs ECS alarms, $(jq length <<<"$tasks") services in the task graph" \
     cloudwatch put-dashboard --region "$REGION" --dashboard-name "$DASHBOARD" --dashboard-body "$body"
 }
 
@@ -317,7 +318,6 @@ create_ecs_alarms() {
     for arn in $arns; do
       svc="${arn##*/}"
       [[ "$svc" =~ (^|-)${w}-(mngr|stratus-adapter|iseries-adapter|postilion-adapter)$ ]] || continue
-      ECS_TASKS+=("$cluster|$svc")
       dims="Name=ClusterName,Value=$cluster Name=ServiceName,Value=$svc"
       # shellcheck disable=SC2086
       alarm "ecs-tasks-$svc" "No running tasks for $svc" --namespace ECS/ContainerInsights \
@@ -363,7 +363,11 @@ command -v jq  > /dev/null || die "jq not found"
 [ "$DRY_RUN" = 1 ] && log "DRY-RUN: patterns are tested and the plan printed, nothing is created or deleted (DRY_RUN=0 to apply)"
 log "Region $REGION, account from the AWS credentials in the environment"
 
-case "${1:-}" in create|delete) ;; *) die "usage: $0 create|delete   (DRY_RUN=0 to apply)" ;; esac
+case "${1:-}" in
+  create|delete) ;;
+  dashboard) create_dashboard; exit 0 ;;
+  *) die "usage: $0 create|dashboard|delete   (DRY_RUN=0 to apply)" ;;
+esac
 log "Checking which log groups exist in this account"
 load_existing_groups
 keep_existing API_GROUPS
@@ -374,5 +378,5 @@ log "  using ${#API_GROUPS[@]} gateway, ${#ADAPTER_GROUPS[@]} adapter and ${#MNG
 case "$1" in
   create) create_all ;;
   delete) delete_all ;;
-  *) die "usage: $0 create|delete   (DRY_RUN=0 to apply)" ;;
+  *) die "usage: $0 create|dashboard|delete   (DRY_RUN=0 to apply)" ;;
 esac
