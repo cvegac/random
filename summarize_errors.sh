@@ -6,7 +6,7 @@
 #
 # Usage:  ./summarize_errors.sh "2026-09-23 08:00:00" "2026-09-23 09:00:00"
 #         (times are Colombia local time, UTC-5)
-# Output: results/<start>__<end>/summary.csv
+# Output: results/<start>__<end>/summary.csv and exceptions_summary.csv (adapter exceptions, step 0)
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, BATCH_SIZE, ERROR_PATTERN1, ERROR_PATTERN2,
@@ -116,6 +116,32 @@ fi
 FLAT='.results[] | (map({(.field): .value}) | add)'
 F_ERRORS="$TMP/1_errors.tsv"
 F_DETAILS="$TMP/2_details.tsv"
+
+# ---------------------------------------------------------------- step 0: adapter HTTP exceptions
+# The REST->SOAP adaptation always answers HTTP 200, so the real backend error only shows up here.
+
+ADAPTER_GROUPS=()
+for g in "${MNGR_GROUPS[@]}"; do ADAPTER_GROUPS+=("${g%-mngr}-stratus-adapter"); done
+
+log "Step 0: searching GenericExceptionMapper exceptions in ${#ADAPTER_GROUPS[@]} log groups"
+read -r -d '' q0 <<'EOF' || true
+fields @message
+| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
+| parse @message /Exception:\s*(?<errorMsg>\d+\s*::.+?)\s*::HEAD::/
+| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\]]+)/
+| parse @message /X-Name=(?<channel>[^,\]]+)/
+| stats count(*) as total by errorMsg, service, channel
+| sort total desc
+| limit 10000
+EOF
+
+run_query "$q0" "$START" "$END" "${ADAPTER_GROUPS[@]}" > "$TMP/0_exceptions.json"
+{
+  echo "count,error_message,service,channel"
+  jq -r "$FLAT"' | [(.total|tonumber), .errorMsg, .service, .channel] | @csv' \
+    < "$TMP/0_exceptions.json"
+} | tr -d '\r' > "$OUT_DIR/exceptions_summary.csv"
+log "  -> $OUT_DIR/exceptions_summary.csv ($(($(awk 'END{print NR}' "$OUT_DIR/exceptions_summary.csv") - 1)) group(s))"
 
 # ---------------------------------------------------------------- step 1: find errors
 
