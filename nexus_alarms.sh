@@ -232,8 +232,9 @@ create_all() {
         --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 3000 \
         --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching
     fi
+    # 3 of 3: the newest 5-minute period is often still filling up and would read as a fake drop
     alarm gateway-traffic-drop "Gateway traffic below its anomaly band (the model needs ~2 weeks of data)" \
-      --evaluation-periods 3 --datapoints-to-alarm 2 --comparison-operator LessThanLowerThreshold \
+      --evaluation-periods 3 --datapoints-to-alarm 3 --comparison-operator LessThanLowerThreshold \
       --threshold-metric-id band --treat-missing-data breaching \
       --metrics "[$(metric_stat req Nexus/Gateway GatewayRequests | sed 's/"ReturnData":false/"ReturnData":true/'),{\"Id\":\"band\",\"Expression\":\"ANOMALY_DETECTION_BAND(req, 2)\",\"ReturnData\":true}]"
   fi
