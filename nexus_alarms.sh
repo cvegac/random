@@ -12,13 +12,12 @@
 #
 # The target account is whatever the AWS credentials in the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
 # AWS_SESSION_TOKEN) belong to; this script deliberately does not check it.
-# It runs the same in any environment (lab, prod): log groups, gateway traffic or ECS clusters that don't exist
+# It runs the same in any environment (lab, prod): log groups or gateway traffic that don't exist
 # there are reported and skipped. Every name starts with "nexus-" and every metric lives under "Nexus/*", so a
 # re-run overwrites instead of duplicating, and "delete" removes exactly what "create" made. Thresholds are
 # starting points to be tuned.
 #
-# Requires: aws cli v2, jq. Optional env vars: AWS_REGION, DRY_RUN (default 1), INCLUDE_CPU_MEM (default 0,
-#           adds CPU/memory alarms per ECS service: ~4 alarm metrics each, the most expensive part).
+# Requires: aws cli v2, jq. Optional env vars: AWS_REGION, DRY_RUN (default 1).
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
@@ -27,7 +26,6 @@ export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
 
 REGION="${AWS_REGION:-us-east-1}"
 DRY_RUN="${DRY_RUN:-1}"
-INCLUDE_CPU_MEM="${INCLUDE_CPU_MEM:-0}"
 PREFIX="nexus-"
 DASHBOARD="NexusAlarmas"
 
@@ -194,9 +192,9 @@ sum_alarm() {  # sum_alarm <name> <description> <namespace> <metric> <threshold>
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching
 }
 
-metric_stat() {  # metric_stat <id> <namespace> <metric> [dimensions json]
-  printf '{"Id":"%s","MetricStat":{"Metric":{"Namespace":"%s","MetricName":"%s","Dimensions":%s},"Period":300,"Stat":"Sum"},"ReturnData":false}' \
-    "$1" "$2" "$3" "${4:-[]}"
+metric_stat() {  # metric_stat <id> <namespace> <metric>
+  printf '{"Id":"%s","MetricStat":{"Metric":{"Namespace":"%s","MetricName":"%s"},"Period":300,"Stat":"Sum"},"ReturnData":false}' \
+    "$1" "$2" "$3"
 }
 
 create_all() {
@@ -257,83 +255,34 @@ create_all() {
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Mngr ChannelResponses),$(metric_stat rej Nexus/Mngr ChannelRejections),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, rej * 100 / total, 0)\",\"Label\":\"channel rejection %\",\"ReturnData\":true}]"
 
-  create_ecs_alarms
   create_dashboard
   log "Done. Review in CloudWatch > Alarms (filter by \"$PREFIX\"); enable with: aws cloudwatch enable-alarm-actions --alarm-names <name>"
 }
 
-# Layout: status of the Nexus alarms, one graph per Nexus alarm (metric vs threshold, 3 per row), status of the
-# ECS task alarms, and the running-task count of every ws service. Built from the alarms that exist right now.
+# Layout: status of the Nexus alarms, then one graph per alarm (metric vs threshold, 3 per row).
+# Built from the alarms that exist right now. ECS task alarms are left out: the account already has its own.
 create_dashboard() {
-  local alarms tasks body n_svc n_ecs
+  local alarms body n
   log "Dashboard $DASHBOARD, from the $PREFIX* alarms that exist now"
   alarms=$(aws_cli cloudwatch describe-alarms --region "$REGION" --alarm-name-prefix "$PREFIX" \
-             --query 'MetricAlarms[].{name: AlarmName, arn: AlarmArn, metric: MetricName, dims: Dimensions}' \
-             --output json | tr -d '\r')
-  # the task-count graph lists the same services the ECS task alarms watch, read from their dimensions
-  tasks=$(jq -c '[.[] | select(.metric == "RunningTaskCount")
-                  | {cluster: (.dims[] | select(.Name == "ClusterName") | .Value),
-                     service: (.dims[] | select(.Name == "ServiceName") | .Value)}] | sort_by(.service)' <<<"$alarms")
-  n_svc=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p) | not)] | length' <<<"$alarms")
-  n_ecs=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p))] | length' <<<"$alarms")
-  if [ $((n_svc + n_ecs)) -eq 0 ]; then
+             --query 'MetricAlarms[].{name: AlarmName, arn: AlarmArn}' --output json | tr -d '\r' \
+           | jq -c --arg ecs "${PREFIX}ecs-" '[.[] | select(.name | startswith($ecs) | not)] | sort_by(.name)')
+  n=$(jq length <<<"$alarms")
+  if [ "$n" -eq 0 ]; then
     log "  no $PREFIX* alarms exist yet (normal on a first dry-run): skipping the dashboard"
     return 0
   fi
-  body=$(jq -c --arg region "$REGION" --arg prefix "$PREFIX" --arg ecs "${PREFIX}ecs-" --argjson tasks "$tasks" '
-    def status($title; $arns; $y; $h):
-      {type: "alarm", x: 0, y: $y, width: 24, height: $h,
-       properties: {title: $title, alarms: $arns, sortBy: "stateUpdatedTimestamp"}};
-    (map(select(.name | startswith($ecs) | not)) | sort_by(.name)) as $svc
-    | (map(select(.name | startswith($ecs))) | sort_by(.name) | .[0:100]) as $ecsAlarms
-    | ($svc | length) as $n
-    | (if $n > 0 then 6 + ((($n + 2) / 3) | floor) * 6 else 0 end) as $yEcs
-    | {widgets: (
-        [ if $n > 0 then status("Alarmas Nexus"; [$svc[].arn]; 0; 6) else empty end ]
-        + [ $svc | to_entries[]
-            | {type: "metric", x: ((.key % 3) * 8), y: (6 + ((.key / 3) | floor) * 6), width: 8, height: 6,
-               properties: {title: (.value.name | ltrimstr($prefix)), annotations: {alarms: [.value.arn]},
-                            view: "timeSeries", stacked: false, region: $region}} ]
-        + [ if ($ecsAlarms | length) > 0 then status("Tareas ECS: alarmas"; [$ecsAlarms[].arn]; $yEcs; 8) else empty end ]
-        + [ if ($tasks | length) > 0 then
-              {type: "metric", x: 0, y: ($yEcs + 8), width: 24, height: 8,
-               properties: {title: "Tareas ECS corriendo", view: "timeSeries", stacked: false, region: $region,
-                            period: 300, stat: "Minimum",
-                            metrics: [ $tasks[] | ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", .cluster,
-                                                   "ServiceName", .service, {label: .service}] ]}}
-            else empty end ]
-      )}' <<<"$alarms")
-  mutate "dashboard $DASHBOARD: $n_svc Nexus alarms (+1 graph each), $n_ecs ECS alarms, $(jq length <<<"$tasks") services in the task graph" \
+  body=$(jq -c --arg region "$REGION" --arg prefix "$PREFIX" '
+    {widgets: (
+      [ {type: "alarm", x: 0, y: 0, width: 24, height: 6,
+         properties: {title: "Alarmas Nexus", alarms: [.[].arn], sortBy: "stateUpdatedTimestamp"}} ]
+      + [ to_entries[]
+          | {type: "metric", x: ((.key % 3) * 8), y: (6 + ((.key / 3) | floor) * 6), width: 8, height: 6,
+             properties: {title: (.value.name | ltrimstr($prefix)), annotations: {alarms: [.value.arn]},
+                          view: "timeSeries", stacked: false, region: $region}} ]
+    )}' <<<"$alarms")
+  mutate "dashboard $DASHBOARD: $n alarms (status + 1 graph each)" \
     cloudwatch put-dashboard --region "$REGION" --dashboard-name "$DASHBOARD" --dashboard-body "$body"
-}
-
-# ECS service names are discovered, not hard-coded: each ws has a "<ws>-mngr" cluster holding its services.
-create_ecs_alarms() {
-  local w cluster arns svc dims
-  log "Alarms: ECS running tasks per ws service (discovered from each <ws>-mngr cluster)"
-  for w in "${WS[@]}"; do
-    cluster="${w}-mngr"
-    arns=$(aws_cli ecs list-services --region "$REGION" --cluster "$cluster" --query 'serviceArns' --output text | tr -d '\r') \
-      || { log "  cluster $cluster not found, skipping"; continue; }
-    for arn in $arns; do
-      svc="${arn##*/}"
-      [[ "$svc" =~ (^|-)${w}-(mngr|stratus-adapter|iseries-adapter|postilion-adapter)$ ]] || continue
-      dims="Name=ClusterName,Value=$cluster Name=ServiceName,Value=$svc"
-      # shellcheck disable=SC2086
-      alarm "ecs-tasks-$svc" "No running tasks for $svc" --namespace ECS/ContainerInsights \
-        --metric-name RunningTaskCount --dimensions $dims --statistic Minimum --period 300 \
-        --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 1 \
-        --comparison-operator LessThanThreshold --treat-missing-data breaching
-      [ "$INCLUDE_CPU_MEM" = 1 ] || continue
-      local d="[{\"Name\":\"ClusterName\",\"Value\":\"$cluster\"},{\"Name\":\"ServiceName\",\"Value\":\"$svc\"}]" kind
-      for kind in Cpu Memory; do
-        alarm "ecs-${kind,,}-$svc" "$kind used/reserved above 80% for $svc" \
-          --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 80 \
-          --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
-          --metrics "[$(metric_stat u ECS/ContainerInsights "${kind}Utilized" "$d" | sed 's/"Stat":"Sum"/"Stat":"Average"/'),$(metric_stat r ECS/ContainerInsights "${kind}Reserved" "$d" | sed 's/"Stat":"Sum"/"Stat":"Average"/'),{\"Id\":\"pct\",\"Expression\":\"100 * u / r\",\"ReturnData\":true}]"
-      done
-    done
-  done
 }
 
 # ---------------------------------------------------------------- delete
