@@ -385,7 +385,7 @@
       "width": 24,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR !]\"\n| stats COUNT(*) AS total_errors  by datefloor (@timestamp , 1m) AS fecha\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| stats COUNT(*) AS total_errors  by datefloor (@timestamp , 1m) AS fecha\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
@@ -405,7 +405,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR !]\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
