@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Creates (or deletes) the Nexus CloudWatch metric filters and alarms. Alarms are ALWAYS created with
-# their actions disabled, so nothing notifies anyone until an engineer reviews and enables them.
+# Creates (or deletes) the Nexus CloudWatch metric filters, alarms and the NexusAlarmas dashboard. Alarms are
+# ALWAYS created with their actions disabled, so nothing notifies anyone until an engineer reviews and enables them.
+# The dashboard lists alarm ARNs (which carry the account id), so its body is built in memory at run time and
+# sent straight to AWS; it is never written to disk or to this repo.
 #
 # Usage:  ./nexus_alarms.sh create                 dry-run (default): tests patterns, prints the plan, creates nothing
 #         DRY_RUN=0 ./nexus_alarms.sh create       applies it
@@ -25,6 +27,8 @@ REGION="${AWS_REGION:-us-east-1}"
 DRY_RUN="${DRY_RUN:-1}"
 INCLUDE_CPU_MEM="${INCLUDE_CPU_MEM:-0}"
 PREFIX="nexus-"
+DASHBOARD="NexusAlarmas"
+ECS_TASKS=()   # "cluster|service" of every ws ECS service found, for the dashboard's task-count graph
 
 WS=(accountsws acquiringws clientsws credit-cardsws insurancesws investmentsws loansws paymentsws productsws remittancesws securityws)
 API_GROUPS=(); MNGR_GROUPS=()
@@ -253,7 +257,53 @@ create_all() {
     --metrics "[$(metric_stat total Nexus/Mngr ChannelResponses),$(metric_stat rej Nexus/Mngr ChannelRejections),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, rej * 100 / total, 0)\",\"Label\":\"channel rejection %\",\"ReturnData\":true}]"
 
   create_ecs_alarms
+  create_dashboard
   log "Done. Review in CloudWatch > Alarms (filter by \"$PREFIX\"); enable with: aws cloudwatch enable-alarm-actions --alarm-names <name>"
+}
+
+# Layout: status of the Nexus alarms, one graph per Nexus alarm (metric vs threshold, 3 per row), status of the
+# ECS task alarms, and the running-task count of every ws service. Built from the alarms that exist right now.
+create_dashboard() {
+  local alarms tasks body n_svc n_ecs
+  log "Dashboard $DASHBOARD, from the $PREFIX* alarms that exist now"
+  alarms=$(aws_cli cloudwatch describe-alarms --region "$REGION" --alarm-name-prefix "$PREFIX" \
+             --query 'MetricAlarms[].{name: AlarmName, arn: AlarmArn}' --output json | tr -d '\r')
+  if [ "${#ECS_TASKS[@]}" -gt 0 ]; then
+    tasks=$(printf '%s\n' "${ECS_TASKS[@]}" | jq -R 'split("|") | {cluster: .[0], service: .[1]}' | jq -s -c .)
+  else
+    tasks='[]'
+  fi
+  n_svc=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p) | not)] | length' <<<"$alarms")
+  n_ecs=$(jq --arg p "${PREFIX}ecs-" '[.[] | select(.name | startswith($p))] | length' <<<"$alarms")
+  if [ $((n_svc + n_ecs)) -eq 0 ]; then
+    log "  no $PREFIX* alarms exist yet (normal on a first dry-run): skipping the dashboard"
+    return 0
+  fi
+  body=$(jq -c --arg region "$REGION" --arg prefix "$PREFIX" --arg ecs "${PREFIX}ecs-" --argjson tasks "$tasks" '
+    def status($title; $arns; $y; $h):
+      {type: "alarm", x: 0, y: $y, width: 24, height: $h,
+       properties: {title: $title, alarms: $arns, sortBy: "stateUpdatedTimestamp"}};
+    (map(select(.name | startswith($ecs) | not)) | sort_by(.name)) as $svc
+    | (map(select(.name | startswith($ecs))) | sort_by(.name) | .[0:100]) as $ecsAlarms
+    | ($svc | length) as $n
+    | (if $n > 0 then 6 + ((($n + 2) / 3) | floor) * 6 else 0 end) as $yEcs
+    | {widgets: (
+        [ if $n > 0 then status("Alarmas Nexus"; [$svc[].arn]; 0; 6) else empty end ]
+        + [ $svc | to_entries[]
+            | {type: "metric", x: ((.key % 3) * 8), y: (6 + ((.key / 3) | floor) * 6), width: 8, height: 6,
+               properties: {title: (.value.name | ltrimstr($prefix)), annotations: {alarms: [.value.arn]},
+                            view: "timeSeries", stacked: false, region: $region}} ]
+        + [ if ($ecsAlarms | length) > 0 then status("Tareas ECS: alarmas"; [$ecsAlarms[].arn]; $yEcs; 8) else empty end ]
+        + [ if ($tasks | length) > 0 then
+              {type: "metric", x: 0, y: ($yEcs + 8), width: 24, height: 8,
+               properties: {title: "Tareas ECS corriendo", view: "timeSeries", stacked: false, region: $region,
+                            period: 300, stat: "Minimum",
+                            metrics: [ $tasks[] | ["ECS/ContainerInsights", "RunningTaskCount", "ClusterName", .cluster,
+                                                   "ServiceName", .service, {label: .service}] ]}}
+            else empty end ]
+      )}' <<<"$alarms")
+  mutate "dashboard $DASHBOARD: $n_svc Nexus alarms (+1 graph each), $n_ecs ECS alarms, ${#ECS_TASKS[@]} services in the task graph" \
+    cloudwatch put-dashboard --region "$REGION" --dashboard-name "$DASHBOARD" --dashboard-body "$body"
 }
 
 # ECS service names are discovered, not hard-coded: each ws has a "<ws>-mngr" cluster holding its services.
@@ -267,6 +317,7 @@ create_ecs_alarms() {
     for arn in $arns; do
       svc="${arn##*/}"
       [[ "$svc" =~ (^|-)${w}-(mngr|stratus-adapter|iseries-adapter|postilion-adapter)$ ]] || continue
+      ECS_TASKS+=("$cluster|$svc")
       dims="Name=ClusterName,Value=$cluster Name=ServiceName,Value=$svc"
       # shellcheck disable=SC2086
       alarm "ecs-tasks-$svc" "No running tasks for $svc" --namespace ECS/ContainerInsights \
@@ -295,6 +346,7 @@ delete_all() {
   for n in $names; do [ "$n" = None ] || mutate "delete alarm $n" cloudwatch delete-alarms --region "$REGION" --alarm-names "$n"; done
   mutate "delete anomaly model of GatewayRequests" cloudwatch delete-anomaly-detector --region "$REGION" \
     --single-metric-anomaly-detector "Namespace=Nexus/Gateway,MetricName=GatewayRequests,Stat=Sum" || true
+  mutate "delete dashboard $DASHBOARD" cloudwatch delete-dashboards --region "$REGION" --dashboard-names "$DASHBOARD" || true
 
   log "Deleting metric filters named $PREFIX*"
   for lg in "${API_GROUPS[@]}" "${ADAPTER_GROUPS[@]}" "${MNGR_GROUPS[@]}"; do
