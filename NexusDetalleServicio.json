@@ -385,7 +385,7 @@
       "width": 24,
       "height": 10,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter (@log like /ws-mngr$/ or @log like /ws-(stratus|iseries|postilion)-adapter$/) and @message like \"RQUID_VAR\"\n| parse @log /\\/aws\\/ecs\\/srv\\/(?<grupo>\\S+)$/\n| fields @timestamp, grupo, @message\n| sort @timestamp asc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter (@log like /ws-mngr$/ or @log like /ws-(stratus|iseries|postilion)-adapter$/) and @message like \"RQUID_VAR\"\n| fields @timestamp, @message, @log\n| parse @log /\\/aws\\/ecs\\/srv\\/(?<grupo>\\S+)$/\n| display @timestamp, grupo, @message\n| sort @timestamp asc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
