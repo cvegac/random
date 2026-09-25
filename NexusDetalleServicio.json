@@ -344,7 +344,21 @@
       "type": "log",
       "x": 0,
       "y": 39,
-      "width": 12,
+      "width": 4,
+      "height": 7,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/ and @message like \"SERVICE_VAR\"\n| fields @message\n| filter @message like \"<caracterAceptacion>\"\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats (count(rechazo) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% rechazo al canal (M)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 39,
+      "width": 10,
       "height": 7,
       "properties": {
         "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/ and @message like \"SERVICE_VAR\"\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
@@ -356,16 +370,16 @@
     },
     {
       "type": "log",
-      "x": 12,
+      "x": 14,
       "y": 39,
-      "width": 12,
+      "width": 10,
       "height": 7,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/ and @message like \"SERVICE_VAR\"\n| fields @message\n| filter @message like 'ERROR'\n| parse @message /<nombreOperacion>(?<nombreOperacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<msgRespuesta>(?<msgRespuesta>[^<]+)<\\/msgRespuesta>/\n| parse @message /<codMsgRespuesta>(?<codMsgRespuesta>[^<]+)<\\/codMsgRespuesta>/\n| filter isPresent(msgRespuesta)\n| stats count(*) as CantidadErrores by nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort CantidadErrores desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/ and @message like \"SERVICE_VAR\"\n| fields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES POR OPERACIÓN / RESPUESTA"
+        "title": "RECHAZOS AL CANAL"
       }
     },
     {

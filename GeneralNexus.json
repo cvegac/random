@@ -216,7 +216,7 @@
       "type": "log",
       "x": 0,
       "y": 32,
-      "width": 24,
+      "width": 12,
       "height": 6,
       "properties": {
         "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>200)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok_200, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
@@ -224,6 +224,20 @@
         "stacked": false,
         "view": "timeSeries",
         "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 32,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @log /\\/srv\\/(?<cluster>[a-z-]+ws)-/\n| filter codigo != \"200\" and codigo != \"412\"\n| stats count(*) as errores by cluster, datefloor(@timestamp, 1m)\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "ERRORES ADAPTADOR POR CLUSTER"
       }
     },
     {
@@ -289,7 +303,7 @@
       "width": 16,
       "height": 6,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp\n|stats pct(TiempoAdp , 95) as pct95 , avg (TiempoAdp) as promedio  by datefloor (@timestamp,1m) \n\n| limit 10000",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats pct(TiempoAdp , 95) as pct95 by Adaptador, datefloor (@timestamp,1m)\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
@@ -338,7 +352,21 @@
       "type": "log",
       "x": 0,
       "y": 67,
-      "width": 24,
+      "width": 4,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @message\n| filter @message like \"<caracterAceptacion>\"\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats (count(rechazo) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% rechazo al canal (M)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 67,
+      "width": 20,
       "height": 6,
       "properties": {
         "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| filter @message like \"[ERROR\"\n| stats COUNT(*) AS total_errors  by datefloor (@timestamp , 1m) AS fecha\n| limit 10000",
@@ -361,11 +389,11 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "RESUMEN ERRORES POR CANAL"
+        "title": "RECHAZOS AL CANAL"
       }
     },
     {
@@ -375,33 +403,33 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @message\n| filter @message like 'ERROR'\n| parse @message /<nombreOperacion>(?<nombreOperacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<msgRespuesta>(?<msgRespuesta>[^<]+)<\\/msgRespuesta>/\n| parse @message /<codMsgRespuesta>(?<codMsgRespuesta>[^<]+)<\\/codMsgRespuesta>/\n| filter isPresent(msgRespuesta)\n| stats count(*) as CantidadErrores by nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort CantidadErrores desc\n| limit 10000",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES POR OPERACIÓN / RESPUESTA"
+        "title": "RESUMEN ERRORES POR CANAL"
       }
     },
     {
       "type": "log",
       "x": 0,
       "y": 81,
-      "width": 24,
+      "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message, @logStream, @log\n|filter @message LIKE \"RSOUT\" \n|PARSE @message \"dt.trace_id=*\" AS traceid\n|PARSE @message \"1=*\" as statusCode\n| parse @message /\\(executor-thread-\\d+\\) \\[(?<var1>[^\\]]+)\\]\\[(?<canal>[^\\]]+)\\]\\[(?<var3>[^\\]]+)\\]\\[(?<var4>[^\\]]+)\\]/\n| parse @message /RSOUT Servicio\\s*(?<rsin_servicio>\\S+)/\n|display rsin_servicio,canal,statusCode\n|stats count (*) as cantidadReq by rsin_servicio,canal,statusCode,@log\n| sort cantidadReq desc\n| limit 10000",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| filter @message like \"BackendHttpAdapter\" and @message like \"RSOUT\"\n| parse @message \"INFO  [*] [*][*][*][*][*][*][*][* *]\" as trace, rquid, canal, servicio, backend, levellog, fasetx, fase, tiempo, unidad\n| stats count(*) as consumos, avg(tiempo) as promedioMs, pct(tiempo, 95) as pct95Ms by canal, servicio\n| sort consumos desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "Consumos Canal-Api (RSOUT)"
+        "title": "CONSUMO CANAL VS SERVICIO"
       }
     },
     {
       "type": "log",
-      "x": 0,
-      "y": 89,
+      "x": 12,
+      "y": 81,
       "width": 12,
-      "height": 7,
+      "height": 8,
       "properties": {
         "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
         "region": "us-east-1",
@@ -412,12 +440,12 @@
     },
     {
       "type": "log",
-      "x": 12,
+      "x": 0,
       "y": 89,
-      "width": 12,
+      "width": 24,
       "height": 7,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, Paso\n| sort pct95 desc\n| limit 50",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]{36})\\]\\[(?<canal>[^\\]]*)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, canal, Paso\n| sort pct95 desc\n| limit 50",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",

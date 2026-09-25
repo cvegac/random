@@ -333,7 +333,7 @@
       "width": 16,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp\n|stats pct(TiempoAdp , 95) as pct95 , avg (TiempoAdp) as promedio  by datefloor (@timestamp,1m) \n\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats pct(TiempoAdp , 95) as pct95 by Adaptador, datefloor (@timestamp,1m)\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
@@ -382,7 +382,21 @@
       "type": "log",
       "x": 0,
       "y": 61,
-      "width": 24,
+      "width": 4,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @message\n| filter @message like \"<caracterAceptacion>\"\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats (count(rechazo) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% rechazo al canal (M)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 61,
+      "width": 20,
       "height": 6,
       "properties": {
         "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| stats COUNT(*) AS total_errors  by datefloor (@timestamp , 1m) AS fecha\n| limit 10000",
@@ -405,11 +419,11 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "RESUMEN ERRORES POR CANAL"
+        "title": "RECHAZOS AL CANAL"
       }
     },
     {
@@ -419,33 +433,33 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @message\n| filter @message like 'ERROR'\n| parse @message /<nombreOperacion>(?<nombreOperacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<msgRespuesta>(?<msgRespuesta>[^<]+)<\\/msgRespuesta>/\n| parse @message /<codMsgRespuesta>(?<codMsgRespuesta>[^<]+)<\\/codMsgRespuesta>/\n| filter isPresent(msgRespuesta)\n| stats count(*) as CantidadErrores by nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort CantidadErrores desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES POR OPERACIÓN / RESPUESTA"
+        "title": "RESUMEN ERRORES POR CANAL"
       }
     },
     {
       "type": "log",
       "x": 0,
       "y": 75,
-      "width": 24,
+      "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message, @logStream, @log\n|filter @message LIKE \"RSOUT\" \n|PARSE @message \"dt.trace_id=*\" AS traceid\n|PARSE @message \"1=*\" as statusCode\n| parse @message /\\(executor-thread-\\d+\\) \\[(?<var1>[^\\]]+)\\]\\[(?<canal>[^\\]]+)\\]\\[(?<var3>[^\\]]+)\\]\\[(?<var4>[^\\]]+)\\]/\n| parse @message /RSOUT Servicio\\s*(?<rsin_servicio>\\S+)/\n|display rsin_servicio,canal,statusCode\n|stats count (*) as cantidadReq by rsin_servicio,canal,statusCode,@log\n| sort cantidadReq desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"BackendHttpAdapter\" and @message like \"RSOUT\"\n| parse @message \"INFO  [*] [*][*][*][*][*][*][*][* *]\" as trace, rquid, canal, servicio, backend, levellog, fasetx, fase, tiempo, unidad\n| stats count(*) as consumos, avg(tiempo) as promedioMs, pct(tiempo, 95) as pct95Ms by canal, servicio\n| sort consumos desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "Consumos Canal-Api (RSOUT)"
+        "title": "CONSUMO CANAL VS SERVICIO"
       }
     },
     {
       "type": "log",
-      "x": 0,
-      "y": 83,
+      "x": 12,
+      "y": 75,
       "width": 12,
-      "height": 7,
+      "height": 8,
       "properties": {
         "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
         "region": "us-east-1",
@@ -456,12 +470,12 @@
     },
     {
       "type": "log",
-      "x": 12,
+      "x": 0,
       "y": 83,
-      "width": 12,
+      "width": 24,
       "height": 7,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, Paso\n| sort pct95 desc\n| limit 50",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]{36})\\]\\[(?<canal>[^\\]]*)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, canal, Paso\n| sort pct95 desc\n| limit 50",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
