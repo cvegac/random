@@ -281,7 +281,7 @@
       "width": 12,
       "height": 7,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>200)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>200)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok_200, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
