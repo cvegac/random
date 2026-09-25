@@ -6,7 +6,8 @@
 #         DRY_RUN=0 ./nexus_alarms.sh create       applies it
 #         DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
 #
-# The target account is whatever the active AWS_PROFILE points to; this script deliberately does not check it.
+# The target account is whatever the AWS credentials in the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# AWS_SESSION_TOKEN) belong to; this script deliberately does not check it.
 # It runs the same in any environment (lab, prod): log groups, gateway traffic or ECS clusters that don't exist
 # there are reported and skipped. Every name starts with "nexus-" and every metric lives under "Nexus/*", so a
 # re-run overwrites instead of duplicating, and "delete" removes exactly what "create" made. Thresholds are
@@ -307,7 +308,7 @@ delete_all() {
 command -v aws > /dev/null || die "aws cli not found"
 command -v jq  > /dev/null || die "jq not found"
 [ "$DRY_RUN" = 1 ] && log "DRY-RUN: patterns are tested and the plan printed, nothing is created or deleted (DRY_RUN=0 to apply)"
-log "Region $REGION, account from the active AWS_PROFILE"
+log "Region $REGION, account from the AWS credentials in the environment"
 
 case "${1:-}" in create|delete) ;; *) die "usage: $0 create|delete   (DRY_RUN=0 to apply)" ;; esac
 log "Checking which log groups exist in this account"
