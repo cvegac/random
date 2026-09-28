@@ -270,20 +270,6 @@
     },
     {
       "type": "log",
-      "x": 0,
-      "y": 46,
-      "width": 12,
-      "height": 8,
-      "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @message\n| filter @message like \"::AUDIT::RESP::\" or (@message like /GenericExceptionMapper/ and @message like /HttpCode::/)\n| parse @message /(?<resp>::AUDIT::RESP::)/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::/\n| parse @message /Exception:\\s*(?<timeout>504)\\s*::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| stats count(resp) as respuestas, (count(codigo) - count(timeout)) as erroresMapeo, ((count(codigo) - count(timeout)) * 100 / count(resp)) as pctMapeo by servicio, canal\n| filter erroresMapeo > 0\n| sort erroresMapeo desc\n| limit 1000",
-        "region": "us-east-1",
-        "stacked": false,
-        "view": "table",
-        "title": "ERRORES DE MAPEO (% sobre respuestas)"
-      }
-    },
-    {
-      "type": "log",
       "x": 12,
       "y": 46,
       "width": 12,
@@ -299,11 +285,12 @@
     {
       "type": "log",
       "x": 0,
-      "y": 54,
+      "y": 46,
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @message\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "query": "SELECT codigo, mensaje, campo, service, channel, total,\n  ROUND(total * 100.0 / respServicioCanal, 4) AS pctServicioCanal,\n  ROUND(total * 100.0 / respCanal, 4) AS pctCanal\nFROM (\n  SELECT regexp_extract(`@message`, 'Exception:[ ]*([0-9]+)[ ]*::', 1) AS codigo,\n    regexp_extract(`@message`, 'Exception:[ ]*[0-9]+[ ]*::[ ]*([^.]*[^. ])', 1) AS mensaje,\n    regexp_extract(`@message`, '3=([A-Za-z0-9_.]+)[ ]*::HEAD::', 1) AS campo,\n    regexp_extract(`@message`, 'X-Referer=[^-,]+-[^-,]+-[^-,]+-([A-Za-z0-9_]+)', 1) AS service,\n    regexp_extract(`@message`, 'X-Name=([A-Za-z0-9_]+)', 1) AS channel,\n    SUM(CASE WHEN `@message` LIKE '%::AUDIT::RESP::%' THEN 0 ELSE 1 END) AS total,\n    SUM(SUM(CASE WHEN `@message` LIKE '%::AUDIT::RESP::%' THEN 1 ELSE 0 END)) OVER (PARTITION BY regexp_extract(`@message`, 'X-Referer=[^-,]+-[^-,]+-[^-,]+-([A-Za-z0-9_]+)', 1), regexp_extract(`@message`, 'X-Name=([A-Za-z0-9_]+)', 1)) AS respServicioCanal,\n    SUM(SUM(CASE WHEN `@message` LIKE '%::AUDIT::RESP::%' THEN 1 ELSE 0 END)) OVER (PARTITION BY regexp_extract(`@message`, 'X-Name=([A-Za-z0-9_]+)', 1)) AS respCanal\n  FROM `logGroups(logGroupIdentifier: ['/aws/ecs/srv/accountsws-iseries-adapter', '/aws/ecs/srv/accountsws-stratus-adapter', '/aws/ecs/srv/acquiringws-stratus-adapter', '/aws/ecs/srv/clientsws-stratus-adapter', '/aws/ecs/srv/credit-cardsws-iseries-adapter', '/aws/ecs/srv/credit-cardsws-postilion-adapter', '/aws/ecs/srv/credit-cardsws-stratus-adapter', '/aws/ecs/srv/insurancesws-stratus-adapter', '/aws/ecs/srv/investmentsws-stratus-adapter', '/aws/ecs/srv/loansws-stratus-adapter', '/aws/ecs/srv/paymentsws-iseries-adapter', '/aws/ecs/srv/paymentsws-stratus-adapter', '/aws/ecs/srv/productsws-stratus-adapter', '/aws/ecs/srv/remittancesws-stratus-adapter', '/aws/ecs/srv/securityws-stratus-adapter'])`\n  WHERE `@message` LIKE '%::AUDIT::RESP::%' OR (`@message` LIKE '%GenericExceptionMapper%' AND `@message` LIKE '%HttpCode::%')\n  GROUP BY regexp_extract(`@message`, 'Exception:[ ]*([0-9]+)[ ]*::', 1), regexp_extract(`@message`, 'Exception:[ ]*[0-9]+[ ]*::[ ]*([^.]*[^. ])', 1), regexp_extract(`@message`, '3=([A-Za-z0-9_.]+)[ ]*::HEAD::', 1), regexp_extract(`@message`, 'X-Referer=[^-,]+-[^-,]+-[^-,]+-([A-Za-z0-9_]+)', 1), regexp_extract(`@message`, 'X-Name=([A-Za-z0-9_]+)', 1)\n) AS t\nWHERE total > 0 AND codigo <> '504'\nORDER BY total DESC\nLIMIT 1000",
+        "queryLanguage": "SQL",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -312,9 +299,9 @@
     },
     {
       "type": "log",
-      "x": 12,
+      "x": 0,
       "y": 54,
-      "width": 12,
+      "width": 24,
       "height": 8,
       "properties": {
         "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
