@@ -275,7 +275,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @message\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @message\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -289,6 +289,20 @@
       "width": 12,
       "height": 8,
       "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @message\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::/\n| filter codigo = \"504\"\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by service, channel\n| sort total desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "TIMEOUTS ADAPTADOR (504)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 54,
+      "width": 24,
+      "height": 8,
+      "properties": {
         "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
         "region": "us-east-1",
         "stacked": false,
@@ -299,7 +313,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 54,
+      "y": 62,
       "width": 16,
       "height": 6,
       "properties": {
@@ -313,7 +327,7 @@
     {
       "type": "log",
       "x": 16,
-      "y": 54,
+      "y": 62,
       "width": 8,
       "height": 6,
       "properties": {
@@ -327,7 +341,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 60,
+      "y": 68,
       "width": 24,
       "height": 6,
       "properties": {
@@ -341,7 +355,7 @@
     {
       "type": "text",
       "x": 0,
-      "y": 66,
+      "y": 74,
       "width": 24,
       "height": 1,
       "properties": {
@@ -351,7 +365,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 67,
+      "y": 75,
       "width": 4,
       "height": 6,
       "properties": {
@@ -365,7 +379,7 @@
     {
       "type": "log",
       "x": 4,
-      "y": 67,
+      "y": 75,
       "width": 20,
       "height": 6,
       "properties": {
@@ -385,7 +399,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 73,
+      "y": 81,
       "width": 12,
       "height": 8,
       "properties": {
@@ -399,7 +413,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 73,
+      "y": 81,
       "width": 12,
       "height": 8,
       "properties": {
@@ -413,7 +427,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 81,
+      "y": 89,
       "width": 12,
       "height": 8,
       "properties": {
@@ -427,7 +441,7 @@
     {
       "type": "log",
       "x": 12,
-      "y": 81,
+      "y": 89,
       "width": 12,
       "height": 8,
       "properties": {
@@ -441,7 +455,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 89,
+      "y": 97,
       "width": 24,
       "height": 7,
       "properties": {
@@ -455,7 +469,7 @@
     {
       "type": "text",
       "x": 0,
-      "y": 96,
+      "y": 104,
       "width": 24,
       "height": 1,
       "properties": {
@@ -465,7 +479,7 @@
     {
       "type": "metric",
       "x": 0,
-      "y": 97,
+      "y": 105,
       "width": 13,
       "height": 9,
       "properties": {
@@ -559,7 +573,7 @@
     {
       "type": "metric",
       "x": 13,
-      "y": 97,
+      "y": 105,
       "width": 11,
       "height": 9,
       "properties": {
