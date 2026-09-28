@@ -6,6 +6,8 @@
 #
 # Usage:  ./nexus_alarms.sh create                 dry-run (default): tests patterns, prints the plan, creates nothing
 #         DRY_RUN=0 ./nexus_alarms.sh create       applies it
+#         DRY_RUN=0 ./nexus_alarms.sh filters      updates only the metric filters; alarms and the dashboard are left
+#                                                  untouched, so thresholds tuned by hand in the console survive
 #         DRY_RUN=0 ./nexus_alarms.sh dashboard    rebuilds only the dashboard; alarms and filters are left untouched,
 #                                                  so thresholds tuned by hand in the console survive
 #         DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
@@ -103,6 +105,7 @@ S_REQ="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AU
 S_200="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{\"ok\":1}::HTTPCODE::200"
 S_412="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{\"error\":{\"code\":\"1\",\"message\":\"x\",\"system\":\"STRATUS_NEXUS\"}}::HTTPCODE::412"
 S_503="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{}::HTTPCODE::503"
+S_206="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{\"ok\":1}::HTTPCODE::206"
 S_MAP="2026-01-01 00:00:00.000000 WARN  [x.GenericExceptionMapper] (executor-thread-1) HttpCode:: 400::Exception: 400 :: Sample .RESPONSE: x ::HEAD::[X-RqUid=$RQ]"
 S_MNGR_ERR="2026-01-01 00:00:00,000 ERROR [dt] [$RQ][ERROR !][ sample ]"
 S_MNGR_INFO="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <msgRespuesta>ERROR EN LA VALIDACION</msgRespuesta> ][AuditLog]"
@@ -111,7 +114,7 @@ S_SOAP_B="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><Data
 
 # Regex only where needed: CloudWatch allows at most 5 regex filter patterns per log group (4 used here).
 P_RESP='%::AUDIT::RESP::%'
-P_200='%::HTTPCODE::200%'
+P_2XX='%::HTTPCODE::2[0-9][0-9]%'   # any 2xx is a success (e.g. 206 on payments)
 P_412='%::HTTPCODE::412%'
 P_5XX='%::HTTPCODE::5[0-9][0-9]%'
 P_MAP='"GenericExceptionMapper" "HttpCode::"'
@@ -123,7 +126,7 @@ P_CANAL_REJ='"<caracterAceptacion>M</caracterAceptacion>"'
 test_log_patterns() {
   log "Testing adapter and mngr patterns against synthetic lines (read-only)"
   expect "$P_RESP" 1 "$S_200"; expect "$P_RESP" 1 "$S_412"; expect "$P_RESP" 0 "$S_REQ"
-  expect "$P_200" 1 "$S_200"; expect "$P_200" 0 "$S_412"
+  expect "$P_2XX" 1 "$S_200"; expect "$P_2XX" 1 "$S_206"; expect "$P_2XX" 0 "$S_412"; expect "$P_2XX" 0 "$S_503"
   expect "$P_412" 1 "$S_412"; expect "$P_412" 0 "$S_200"
   expect "$P_5XX" 1 "$S_503"; expect "$P_5XX" 0 "$S_412"; expect "$P_5XX" 0 "$S_200"
   expect "$P_MAP" 1 "$S_MAP"; expect "$P_MAP" 0 "$S_200"
@@ -198,6 +201,13 @@ metric_stat() {  # metric_stat <id> <namespace> <metric>
 }
 
 create_all() {
+  create_filters
+  create_alarms
+  create_dashboard
+  log "Done. Review in CloudWatch > Alarms (filter by \"$PREFIX\"); enable with: aws cloudwatch enable-alarm-actions --alarm-names <name>"
+}
+
+create_filters() {
   test_log_patterns
   learn_gateway_patterns
 
@@ -213,7 +223,8 @@ create_all() {
   log "Metric filters: adapters (${#ADAPTER_GROUPS[@]} groups)"
   for lg in "${ADAPTER_GROUPS[@]}"; do
     put_filter "$lg" adapter-responses "$P_RESP" Nexus/Adapters AdapterResponses
-    put_filter "$lg" adapter-responses-200 "$P_200" Nexus/Adapters AdapterResponses200
+    # counts every 2xx; the filter and metric keep their original "200" names so existing alarms keep working
+    put_filter "$lg" adapter-responses-200 "$P_2XX" Nexus/Adapters AdapterResponses200
     put_filter "$lg" adapter-responses-412 "$P_412" Nexus/Adapters AdapterResponses412
     put_filter "$lg" adapter-responses-5xx "$P_5XX" Nexus/Adapters AdapterResponses5xx
     put_filter "$lg" adapter-mapping-errors "$P_MAP" Nexus/Adapters AdapterMappingErrors
@@ -225,7 +236,10 @@ create_all() {
     put_filter "$lg" channel-responses "$P_CANAL_RESP" Nexus/Mngr ChannelResponses
     put_filter "$lg" channel-rejections "$P_CANAL_REJ" Nexus/Mngr ChannelRejections
   done
+}
 
+# Needs GW_ENABLED/GW_LATENCY, set by learn_gateway_patterns in create_filters.
+create_alarms() {
   log "Alarms (all with actions disabled)"
   if [ "$GW_ENABLED" = 1 ]; then
     sum_alarm gateway-5xx "API Gateway 5XX across the ws APIs" Nexus/Gateway Gateway5xx 10
@@ -241,7 +255,7 @@ create_all() {
       --threshold-metric-id band --treat-missing-data breaching \
       --metrics "[$(metric_stat req Nexus/Gateway GatewayRequests | sed 's/"ReturnData":false/"ReturnData":true/'),{\"Id\":\"band\",\"Expression\":\"ANOMALY_DETECTION_BAND(req, 2)\",\"ReturnData\":true}]"
   fi
-  alarm adapters-real-error-pct "% of adapter responses that are neither 200 nor 412 (412 = business answer); only with >50 responses" \
+  alarm adapters-real-error-pct "% of adapter responses that are neither 2xx nor 412 (412 = business answer); only with >50 responses" \
     --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 5 \
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Adapters AdapterResponses),$(metric_stat ok Nexus/Adapters AdapterResponses200),$(metric_stat biz Nexus/Adapters AdapterResponses412),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, (total - ok - biz) * 100 / total, 0)\",\"Label\":\"real error %\",\"ReturnData\":true}]"
@@ -254,9 +268,6 @@ create_all() {
     --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 40 \
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Mngr ChannelResponses),$(metric_stat rej Nexus/Mngr ChannelRejections),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, rej * 100 / total, 0)\",\"Label\":\"channel rejection %\",\"ReturnData\":true}]"
-
-  create_dashboard
-  log "Done. Review in CloudWatch > Alarms (filter by \"$PREFIX\"); enable with: aws cloudwatch enable-alarm-actions --alarm-names <name>"
 }
 
 # Layout: status of the Nexus alarms, then one graph per alarm (metric vs threshold, 3 per row).
@@ -313,9 +324,9 @@ command -v jq  > /dev/null || die "jq not found"
 log "Region $REGION, account from the AWS credentials in the environment"
 
 case "${1:-}" in
-  create|delete) ;;
+  create|filters|delete) ;;
   dashboard) create_dashboard; exit 0 ;;
-  *) die "usage: $0 create|dashboard|delete   (DRY_RUN=0 to apply)" ;;
+  *) die "usage: $0 create|filters|dashboard|delete   (DRY_RUN=0 to apply)" ;;
 esac
 log "Checking which log groups exist in this account"
 load_existing_groups
@@ -326,6 +337,7 @@ log "  using ${#API_GROUPS[@]} gateway, ${#ADAPTER_GROUPS[@]} adapter and ${#MNG
 
 case "$1" in
   create) create_all ;;
+  filters) create_filters; log "Done. Only metric filters were touched." ;;
   delete) delete_all ;;
-  *) die "usage: $0 create|dashboard|delete   (DRY_RUN=0 to apply)" ;;
+  *) die "usage: $0 create|filters|dashboard|delete   (DRY_RUN=0 to apply)" ;;
 esac
