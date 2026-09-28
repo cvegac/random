@@ -55,6 +55,15 @@
           "label": "insurancesws"
         }
       ]
+    },
+    {
+      "type": "pattern",
+      "pattern": "CANAL_VAR",
+      "inputType": "input",
+      "id": "Canal",
+      "label": "Canal (.* = todos)",
+      "defaultValue": ".*",
+      "visible": true
     }
   ],
   "widgets": [
@@ -65,7 +74,7 @@
       "width": 24,
       "height": 2,
       "properties": {
-        "markdown": "## NexusDetalleCluster\n[General](#dashboards:name=NexusGeneral) · [Servicio](#dashboards:name=NexusDetalleServicio)"
+        "markdown": "## NexusDetalleCluster\nCanal: código (ej `37`, varios `37|01`, `.*` = todos); no aplica a la fila 1 ni a ERROR LOGS. [General](#dashboards:name=NexusGeneral) · [Servicio](#dashboards:name=NexusDetalleServicio)"
       }
     },
     {
@@ -207,7 +216,7 @@
       "width": 6,
       "height": 4,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| stats count(*) as respuestas",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| stats count(*) as respuestas",
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
@@ -221,7 +230,7 @@
       "width": 6,
       "height": 4,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(ok) * 100 / count(*)) as value",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(ok) * 100 / count(*)) as value",
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
@@ -235,7 +244,7 @@
       "width": 6,
       "height": 4,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(negocio) * 100 / count(*)) as value",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(negocio) * 100 / count(*)) as value",
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
@@ -249,7 +258,7 @@
       "width": 6,
       "height": 4,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as value",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as value",
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
@@ -263,7 +272,7 @@
       "width": 24,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
@@ -277,7 +286,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| stats count(*) as respuestas, count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error,\n    ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as pctError by servicio\n| sort error desc, respuestas desc\n| limit 200",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| stats count(*) as respuestas, count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error,\n    ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as pctError by servicio, canal\n| sort error desc, respuestas desc\n| limit 200",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -291,7 +300,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/\n| stats count(*) as CantReq by codigo, sistema, errorCodigo, errorMensaje, servicio\n| sort CantReq desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/\n| stats count(*) as CantReq by codigo, sistema, errorCodigo, errorMensaje, servicio, canal\n| sort CantReq desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -305,7 +314,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -319,7 +328,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -333,7 +342,7 @@
       "width": 16,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats pct(TiempoAdp , 95) as pct95 by Adaptador, datefloor (@timestamp,1m)\n| limit 10000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats pct(TiempoAdp , 95) as pct95 by Adaptador, datefloor (@timestamp,1m)\n| limit 10000",
         "region": "us-east-1",
         "stacked": false,
         "view": "timeSeries",
@@ -361,7 +370,7 @@
       "width": 24,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats count(*) as llamadas, avg(TiempoAdp) as promedio, pct(TiempoAdp, 95) as pct95 by Adaptador\n| sort pct95 desc\n| limit 100",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @logStream, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats count(*) as llamadas, avg(TiempoAdp) as promedio, pct(TiempoAdp, 95) as pct95 by Adaptador\n| sort pct95 desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -385,7 +394,7 @@
       "width": 4,
       "height": 6,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @message\n| filter @message like \"<caracterAceptacion>\"\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats (count(rechazo) * 100 / count(*)) as value",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats latest(canalReq) as canal, latest(aceptacion) as resultado, latest(rechazo) as rech by rquid\n| filter ispresent(resultado) and canal like /^(CANAL_VAR)$/\n| stats (count(rech) * 100 / count(*)) as value",
         "region": "us-east-1",
         "stacked": false,
         "view": "number",
@@ -419,7 +428,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter canal like /^(CANAL_VAR)$/ and resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -447,7 +456,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| filter @message like \"BackendHttpAdapter\" and @message like \"RSOUT\"\n| parse @message \"INFO  [*] [*][*][*][*][*][*][*][* *]\" as trace, rquid, canal, servicio, backend, levellog, fasetx, fase, tiempo, unidad\n| stats count(*) as consumos, avg(tiempo) as promedioMs, pct(tiempo, 95) as pct95Ms by canal, servicio\n| sort consumos desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"BackendHttpAdapter\" and @message like \"RSOUT\"\n| parse @message \"INFO  [*] [*][*][*][*][*][*][*][* *]\" as trace, rquid, canal, servicio, backend, levellog, fasetx, fase, tiempo, unidad\n| stats count(*) as consumos, avg(tiempo) as promedioMs, pct(tiempo, 95) as pct95Ms by canal, servicio\n| sort consumos desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -461,7 +470,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -475,7 +484,7 @@
       "width": 24,
       "height": 7,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /\\[(?<rquid>[a-f0-9\\-]{36})\\]\\[(?<canal>[^\\]]*)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, canal, Paso\n| sort pct95 desc\n| limit 50",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-mngr$/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| parse @message /\\[(?<rquid>[a-f0-9\\-]{36})\\]\\[(?<canal>[^\\]]*)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, canal, Paso\n| sort pct95 desc\n| limit 50",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
