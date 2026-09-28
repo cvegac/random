@@ -107,6 +107,7 @@ S_412="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AU
 S_503="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{}::HTTPCODE::503"
 S_206="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{\"ok\":1}::HTTPCODE::206"
 S_MAP="2026-01-01 00:00:00.000000 WARN  [x.GenericExceptionMapper] (executor-thread-1) HttpCode:: 400::Exception: 400 :: Sample .RESPONSE: x ::HEAD::[X-RqUid=$RQ]"
+S_TIMEOUT="2026-01-01 00:00:00.000000 WARN  [x.GenericExceptionMapper] (executor-thread-1) HttpCode:: 504::Exception: 504 :: Sample .RESPONSE: x ::HEAD::[X-RqUid=$RQ]"
 S_MNGR_ERR="2026-01-01 00:00:00,000 ERROR [dt] [$RQ][ERROR !][ sample ]"
 S_MNGR_INFO="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <msgRespuesta>ERROR EN LA VALIDACION</msgRespuesta> ][AuditLog]"
 S_SOAP_M="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><DataHeader><nombreOperacion>X</nombreOperacion><caracterAceptacion>M</caracterAceptacion><codMsgRespuesta>1</codMsgRespuesta></DataHeader></Response> ][AuditLog]"
@@ -117,7 +118,9 @@ P_RESP='%::AUDIT::RESP::%'
 P_2XX='%::HTTPCODE::2[0-9][0-9]%'   # any 2xx is a success (e.g. 206 on payments)
 P_412='%::HTTPCODE::412%'
 P_5XX='%::HTTPCODE::5[0-9][0-9]%'
-P_MAP='"GenericExceptionMapper" "HttpCode::"'
+# 504 from the mapper is a backend timeout, not a mapping error: the two patterns split the mapper lines between them
+P_MAP='"GenericExceptionMapper" "HttpCode::" -"HttpCode:: 504"'
+P_TIMEOUT='"GenericExceptionMapper" "HttpCode:: 504"'
 P_MNGR_ERR='"[ERROR"'   # the level marker may carry an emoji after ERROR; "[ERROR" matches either way
 # SOAP response the channel receives: caracterAceptacion B = accepted, M = rejected (business or technical)
 P_CANAL_RESP='"<caracterAceptacion>"'
@@ -129,7 +132,8 @@ test_log_patterns() {
   expect "$P_2XX" 1 "$S_200"; expect "$P_2XX" 1 "$S_206"; expect "$P_2XX" 0 "$S_412"; expect "$P_2XX" 0 "$S_503"
   expect "$P_412" 1 "$S_412"; expect "$P_412" 0 "$S_200"
   expect "$P_5XX" 1 "$S_503"; expect "$P_5XX" 0 "$S_412"; expect "$P_5XX" 0 "$S_200"
-  expect "$P_MAP" 1 "$S_MAP"; expect "$P_MAP" 0 "$S_200"
+  expect "$P_MAP" 1 "$S_MAP"; expect "$P_MAP" 0 "$S_TIMEOUT"; expect "$P_MAP" 0 "$S_200"
+  expect "$P_TIMEOUT" 1 "$S_TIMEOUT"; expect "$P_TIMEOUT" 0 "$S_MAP"; expect "$P_TIMEOUT" 0 "$S_200"
   expect "$P_MNGR_ERR" 1 "$S_MNGR_ERR"; expect "$P_MNGR_ERR" 0 "$S_MNGR_INFO"
   expect "$P_CANAL_RESP" 1 "$S_SOAP_M"; expect "$P_CANAL_RESP" 1 "$S_SOAP_B"; expect "$P_CANAL_RESP" 0 "$S_MNGR_INFO"
   expect "$P_CANAL_REJ" 1 "$S_SOAP_M"; expect "$P_CANAL_REJ" 0 "$S_SOAP_B"
@@ -228,6 +232,7 @@ create_filters() {
     put_filter "$lg" adapter-responses-412 "$P_412" Nexus/Adapters AdapterResponses412
     put_filter "$lg" adapter-responses-5xx "$P_5XX" Nexus/Adapters AdapterResponses5xx
     put_filter "$lg" adapter-mapping-errors "$P_MAP" Nexus/Adapters AdapterMappingErrors
+    put_filter "$lg" adapter-timeouts "$P_TIMEOUT" Nexus/Adapters AdapterTimeouts
   done
 
   log "Metric filters: mngr (${#MNGR_GROUPS[@]} groups)"
@@ -260,7 +265,8 @@ create_alarms() {
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Adapters AdapterResponses),$(metric_stat ok Nexus/Adapters AdapterResponses200),$(metric_stat biz Nexus/Adapters AdapterResponses412),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, (total - ok - biz) * 100 / total, 0)\",\"Label\":\"real error %\",\"ReturnData\":true}]"
   sum_alarm adapters-backend-5xx "Adapter responses with HTTP 5xx from the backend" Nexus/Adapters AdapterResponses5xx 5
-  sum_alarm adapters-mapping-errors "GenericExceptionMapper errors in the adapters" Nexus/Adapters AdapterMappingErrors 10
+  sum_alarm adapters-mapping-errors "GenericExceptionMapper errors in the adapters, 504 timeouts excluded" Nexus/Adapters AdapterMappingErrors 10
+  sum_alarm adapters-timeouts "Backend timeouts (504) reported by the adapters' GenericExceptionMapper" Nexus/Adapters AdapterTimeouts 10
   sum_alarm mngr-errors "[ERROR lines in the ws mngr" Nexus/Mngr MngrErrors 20
   # M mixes business answers and technical errors, so its normal level is well above 0: calibrate the
   # threshold with the "% rechazo al canal (M)" dashboard widget before enabling this one.
