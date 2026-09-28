@@ -83,7 +83,7 @@
       "width": 24,
       "height": 2,
       "properties": {
-        "markdown": "## NexusDetalleServicio\nServicio sin `/ESBService/` (ej: `ConsultaBolsillos`); Rquid para la fila 4. [Cluster](#dashboards:name=NexusDetalleCluster) · [General](#dashboards:name=GeneralNexus)"
+        "markdown": "## NexusDetalleServicio\nServicio sin `/ESBService/` (ej: `ConsultaBolsillos`); Rquid para la fila 4. [Cluster](#dashboards:name=NexusDetalleCluster) · [General](#dashboards:name=NexusGeneral)"
       }
     },
     {
