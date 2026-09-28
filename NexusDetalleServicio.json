@@ -318,7 +318,7 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
@@ -332,6 +332,20 @@
       "width": 12,
       "height": 8,
       "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::/\n| filter codigo = \"504\"\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by service, channel\n| sort total desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "TIMEOUTS ADAPTADOR (504)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 38,
+      "width": 24,
+      "height": 8,
+      "properties": {
         "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/ and @message like \"SERVICE_VAR\"\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
         "region": "us-east-1",
         "stacked": false,
@@ -342,7 +356,7 @@
     {
       "type": "text",
       "x": 0,
-      "y": 38,
+      "y": 46,
       "width": 24,
       "height": 1,
       "properties": {
@@ -352,7 +366,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 39,
+      "y": 47,
       "width": 4,
       "height": 7,
       "properties": {
@@ -366,7 +380,7 @@
     {
       "type": "log",
       "x": 4,
-      "y": 39,
+      "y": 47,
       "width": 10,
       "height": 7,
       "properties": {
@@ -380,7 +394,7 @@
     {
       "type": "log",
       "x": 14,
-      "y": 39,
+      "y": 47,
       "width": 10,
       "height": 7,
       "properties": {
@@ -394,7 +408,7 @@
     {
       "type": "text",
       "x": 0,
-      "y": 46,
+      "y": 54,
       "width": 24,
       "height": 1,
       "properties": {
@@ -404,7 +418,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 47,
+      "y": 55,
       "width": 24,
       "height": 10,
       "properties": {
@@ -418,7 +432,7 @@
     {
       "type": "log",
       "x": 0,
-      "y": 57,
+      "y": 65,
       "width": 24,
       "height": 6,
       "properties": {
