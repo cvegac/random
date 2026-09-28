@@ -314,11 +314,11 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\" or (@message like /GenericExceptionMapper/ and @message like /HttpCode::/)\n| parse @message /(?<resp>::AUDIT::RESP::)/\n| parse @message /GenericExceptionMapper.*Exception:\\s*(?<codigo>\\d+)\\s*::/\n| parse @message /GenericExceptionMapper.*Exception:\\s*(?<timeout>504)\\s*::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| stats count(resp) as respuestas, (count(codigo) - count(timeout)) as erroresMapeo, ((count(codigo) - count(timeout)) * 100 / count(resp)) as pctMapeo by servicio, canal\n| filter erroresMapeo > 0\n| sort erroresMapeo desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "ERRORES DE MAPEO"
+        "title": "ERRORES DE MAPEO (% sobre respuestas)"
       }
     },
     {
@@ -328,18 +328,32 @@
       "width": 12,
       "height": 8,
       "properties": {
-        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::/\n| filter codigo = \"504\"\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by service, channel\n| sort total desc\n| limit 1000",
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\" or (@message like /GenericExceptionMapper/ and @message like /HttpCode::/)\n| parse @message /(?<resp>::AUDIT::RESP::)/\n| parse @message /GenericExceptionMapper.*Exception:\\s*(?<codigo>\\d+)\\s*::/\n| parse @message /GenericExceptionMapper.*Exception:\\s*(?<timeout>504)\\s*::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| stats count(resp) as respuestas, count(timeout) as timeouts, (count(timeout) * 100 / count(resp)) as pctTimeout by servicio, canal\n| filter timeouts > 0\n| sort timeouts desc\n| limit 1000",
         "region": "us-east-1",
         "stacked": false,
         "view": "table",
-        "title": "TIMEOUTS ADAPTADOR (504)"
+        "title": "TIMEOUTS ADAPTADOR 504 (% sobre respuestas)"
       }
     },
     {
       "type": "log",
       "x": 0,
       "y": 48,
-      "width": 24,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "DETALLE ERRORES DE MAPEO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 48,
+      "width": 12,
       "height": 8,
       "properties": {
         "query": "SOURCE logGroups(namePrefix: [\"/aws/ecs/srv/PREFIX_VAR\"], class: \"STANDARD\") |\nfilter @log like /ws-(stratus|iseries|postilion)-adapter$/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
