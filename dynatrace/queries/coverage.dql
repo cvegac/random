@@ -1,0 +1,45 @@
+data
+  record(log_group = "/aws/api/api_accountsws"),
+  record(log_group = "/aws/api/api_acquiringws"),
+  record(log_group = "/aws/api/api_clientsws"),
+  record(log_group = "/aws/api/api_creditcardsws"),
+  record(log_group = "/aws/api/api_insurancesws"),
+  record(log_group = "/aws/api/api_investmentsws"),
+  record(log_group = "/aws/api/api_loansws"),
+  record(log_group = "/aws/api/api_paymentsws"),
+  record(log_group = "/aws/api/api_productsws"),
+  record(log_group = "/aws/api/api_remittancesws"),
+  record(log_group = "/aws/api/api_securityws"),
+  record(log_group = "/aws/ecs/srv/accountsws-iseries-adapter"),
+  record(log_group = "/aws/ecs/srv/accountsws-mngr"),
+  record(log_group = "/aws/ecs/srv/accountsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/acquiringws-mngr"),
+  record(log_group = "/aws/ecs/srv/acquiringws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/clientsws-mngr"),
+  record(log_group = "/aws/ecs/srv/clientsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/credit-cardsws-iseries-adapter"),
+  record(log_group = "/aws/ecs/srv/credit-cardsws-mngr"),
+  record(log_group = "/aws/ecs/srv/credit-cardsws-postilion-adapter"),
+  record(log_group = "/aws/ecs/srv/credit-cardsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/insurancesws-mngr"),
+  record(log_group = "/aws/ecs/srv/insurancesws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/investmentsws-mngr"),
+  record(log_group = "/aws/ecs/srv/investmentsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/loansws-mngr"),
+  record(log_group = "/aws/ecs/srv/loansws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/paymentsws-iseries-adapter"),
+  record(log_group = "/aws/ecs/srv/paymentsws-mngr"),
+  record(log_group = "/aws/ecs/srv/paymentsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/productsws-mngr"),
+  record(log_group = "/aws/ecs/srv/productsws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/remittancesws-mngr"),
+  record(log_group = "/aws/ecs/srv/remittancesws-stratus-adapter"),
+  record(log_group = "/aws/ecs/srv/securityws-mngr"),
+  record(log_group = "/aws/ecs/srv/securityws-stratus-adapter")
+| lookup [
+    fetch logs, from: -24h
+    | filter startsWith(aws.log_group, "/aws/api/") or startsWith(aws.log_group, "/aws/ecs/srv/")
+    | summarize records = count(), last_seen = max(timestamp), by: { aws.log_group }
+  ], sourceField: log_group, lookupField: aws.log_group, fields: { records, last_seen }
+| fieldsAdd status = if(isNull(records), "MISSING", else: "OK")
+| sort status asc, log_group asc

@@ -1,0 +1,194 @@
+{
+  "version": 15,
+  "variables": [],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "## NexusGeneral (Dynatrace - piloto)\nSOAP responde HTTP 200 aunque falle: el error real está en la sección 2.\n\nPendiente: **1. API Gateway** (logs `/aws/api/*` no ingestados) y **4. Infra ECS** (métricas AWS por confirmar)."
+    },
+    "1": {
+      "type": "markdown",
+      "content": "### 2. Adaptadores (2xx OK · 412 negocio · otro error)"
+    },
+    "2": {
+      "type": "data",
+      "title": "Respuestas adaptador",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| summarize responses = count()",
+      "visualization": "singleValue"
+    },
+    "3": {
+      "type": "data",
+      "title": "% OK (2xx)",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| summarize value = round(100.0 * countIf(outcome == \"ok_2xx\") / count(), decimals: 2)",
+      "visualization": "singleValue"
+    },
+    "4": {
+      "type": "data",
+      "title": "% 412 (negocio)",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| summarize value = round(100.0 * countIf(outcome == \"business_412\") / count(), decimals: 2)",
+      "visualization": "singleValue"
+    },
+    "5": {
+      "type": "data",
+      "title": "% error",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| summarize value = round(100.0 * countIf(outcome == \"error\") / count(), decimals: 2)",
+      "visualization": "singleValue"
+    },
+    "6": {
+      "type": "data",
+      "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| makeTimeseries responses = count(), by: { outcome }",
+      "visualization": "lineChart"
+    },
+    "7": {
+      "type": "data",
+      "title": "ERRORES ADAPTADOR POR CLUSTER",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| filter outcome == \"error\"\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| makeTimeseries errors = count(), by: { cluster }",
+      "visualization": "lineChart"
+    },
+    "8": {
+      "type": "data",
+      "title": "RESPUESTAS ADAPTADOR POR SERVICIO",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = count(),\n    ok_2xx = countIf(outcome == \"ok_2xx\"),\n    business_412 = countIf(outcome == \"business_412\"),\n    error = countIf(outcome == \"error\"),\n    by: { service, channel }\n| fieldsAdd pct_error = round(100.0 * error / responses, decimals: 2)\n| sort error desc, responses desc\n| limit 200",
+      "visualization": "table"
+    },
+    "9": {
+      "type": "data",
+      "title": "ADAPTADORES EN USO",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| summarize events = count(), by: { aws.log_group }\n| sort events desc",
+      "visualization": "table"
+    },
+    "10": {
+      "type": "data",
+      "title": "ERRORES DE MAPEO",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'Exception:' SPACE? INT:code\"\n| filter code != 504\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD:message ' .'\"\n| parse content, \"LD '3=' LD:field SPACE? '::HEAD::'\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { code, message, field, service, channel }\n| sort total desc\n| limit 1000",
+      "visualization": "table"
+    },
+    "11": {
+      "type": "data",
+      "title": "TIMEOUTS ADAPTADOR (504)",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'Exception:' SPACE? INT:code\"\n| filter code == 504\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { service, channel }\n| sort total desc\n| limit 1000",
+      "visualization": "table"
+    },
+    "12": {
+      "type": "data",
+      "title": "RQUIDS CON ERROR 4XX/5XX",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| filter outcome == \"error\"\n| parse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| fields timestamp, rquid, service, channel, code, error_system, error_message\n| sort timestamp desc\n| limit 200",
+      "visualization": "table"
+    },
+    "13": {
+      "type": "markdown",
+      "content": "### 3. Proxy WS / ESB"
+    },
+    "14": {
+      "type": "data",
+      "title": "% rechazo al canal (M)",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"<caracterAceptacion>\")\n| summarize value = round(100.0 * countIf(contains(content, \"<caracterAceptacion>M</caracterAceptacion>\")) / count(), decimals: 2)",
+      "visualization": "singleValue"
+    },
+    "15": {
+      "type": "data",
+      "title": "ERROR LOGS",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\")\n| makeTimeseries total_errors = count()",
+      "visualization": "lineChart"
+    }
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 24,
+      "h": 1
+    },
+    "2": {
+      "x": 0,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "3": {
+      "x": 6,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "4": {
+      "x": 12,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "5": {
+      "x": 18,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "6": {
+      "x": 0,
+      "y": 7,
+      "w": 12,
+      "h": 6
+    },
+    "7": {
+      "x": 12,
+      "y": 7,
+      "w": 12,
+      "h": 6
+    },
+    "8": {
+      "x": 0,
+      "y": 13,
+      "w": 12,
+      "h": 8
+    },
+    "9": {
+      "x": 12,
+      "y": 13,
+      "w": 12,
+      "h": 8
+    },
+    "10": {
+      "x": 0,
+      "y": 21,
+      "w": 12,
+      "h": 8
+    },
+    "11": {
+      "x": 12,
+      "y": 21,
+      "w": 12,
+      "h": 8
+    },
+    "12": {
+      "x": 0,
+      "y": 29,
+      "w": 24,
+      "h": 8
+    },
+    "13": {
+      "x": 0,
+      "y": 37,
+      "w": 24,
+      "h": 1
+    },
+    "14": {
+      "x": 0,
+      "y": 38,
+      "w": 4,
+      "h": 6
+    },
+    "15": {
+      "x": 4,
+      "y": 38,
+      "w": 20,
+      "h": 6
+    }
+  }
+}
