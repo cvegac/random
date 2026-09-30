@@ -72,7 +72,7 @@
     "6": {
       "type": "data",
       "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
-      "query": "fetch logs\n| filter startsWith(aws.log_group, concat(\"/aws/ecs/srv/\", $Cluster, \"-\")) and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| fieldsAdd outcome = if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\"))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| makeTimeseries responses = count(), by: { outcome }",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, concat(\"/aws/ecs/srv/\", $Cluster, \"-\")) and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' INT:code\"\n| filter isNotNull(code)\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| makeTimeseries responses = count(), by: { code }",
       "visualization": "lineChart"
     },
     "7": {
