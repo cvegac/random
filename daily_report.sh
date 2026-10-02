@@ -232,7 +232,7 @@ add_query api_by_api api "$API_BASE
 | limit 100"
 
 add_query adp_kpi adapter "$ADP_RESP
-| stats count(*) as total, count(ok) as ok, count(negocio) as negocio"
+| stats count(*) as total, count(ok) as ok_2xx, count(negocio) as negocio_412"
 
 add_query adp_by_service adapter "$ADP_RESP
 | parse @message /X-Name=(?<canal>[^,\]]+)/
@@ -422,7 +422,7 @@ peak_label=""
   | ($d.api_kpi[0] // {}) as $a | ($a.total | num) as $at
   | pct($a.s5xx | num; $at) as $p5
   | ($d.adp_kpi[0] // {}) as $r | ($r.total | num) as $rt
-  | (($rt - ($r.ok | num) - ($r.negocio | num))) as $rerr | pct($rerr; $rt) as $pe
+  | (($rt - ($r.ok_2xx | num) - ($r.negocio_412 | num))) as $rerr | pct($rerr; $rt) as $pe
   | ($d.mngr_reject_pct[0] // {}) as $m | pct($m.rejected | num; $m.total | num) as $pm
   | [light($p5; $th.w5; $th.c5), light($pe; $th.wa; $th.ca), light($pm; $th.wr; $th.cr)] as $lights
   | (if any($lights[]; . == "🔴") then "🔴" elif any($lights[]; . == "🟡") then "🟡" else "🟢" end) as $overall
@@ -439,7 +439,7 @@ peak_label=""
         | map("\(.API) 5xx \(.s5xx | fmt) / 4xx \(.s4xx | fmt) de \(.total | fmt)") | orNone | join(" · ")),
     "",
     "🔌 Adaptadores \($lights[1])",
-    "• \($rt | fmt) respuestas | OK \(pct($r.ok | num; $rt) | pc)% | 412 negocio \(pct($r.negocio | num; $rt) | pc)% | error \($pe | pc)%",
+    "• \($rt | fmt) respuestas | OK \(pct($r.ok_2xx | num; $rt) | pc)% | 412 negocio \(pct($r.negocio_412 | num; $rt) | pc)% | error \($pe | pc)%",
     "• Más errores: " + ([$d.adp_by_service[] | select((.error | num) > 0)][0:3]
         | map("\(.servicio // "-")/\(.canal // "-") \(.error | fmt)") | orNone | join(" · ")),
     "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — principales: " +
