@@ -345,12 +345,13 @@ peak_label=""
     '{meta: {$from, $to, $peak, $truncated, th: {$w5, $c5, $wa, $ca, $wr, $cr}}}'
 } | tr -d '\r' | jq -s -r 'add | . as $d
   | def num: (. // 0) | tonumber;
-    def fmt: (num | round | tostring) as $s | ($s | length) as $n     # 1234567 -> "1,234,567"
-      | [range(0; $n) | $s[.:. + 1] + (if ($n - . - 1) > 0 and (($n - . - 1) % 3) == 0 then "," else "" end)] | join("");
+    def fmt: (num | round | tostring) as $s | ($s | length) as $n     # 1234567 -> "1.234.567" (es-CO)
+      | [range(0; $n) | $s[.:. + 1] + (if ($n - . - 1) > 0 and (($n - . - 1) % 3) == 0 then "." else "" end)] | join("");
     def pct(a; b): if b > 0 then (a * 1000 / b | round) / 10 else 0 end;
+    def pc: tostring | sub("\\."; ",");                                 # 97.2 -> "97,2" (es-CO)
     def light(v; w; c): if v >= c then "🔴" elif v >= w then "🟡" else "🟢" end;
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
-    def orNone: if length == 0 then ["none"] else . end;
+    def orNone: if length == 0 then ["ninguno"] else . end;
 
     ($d.meta.th) as $th
   | ($d.api_kpi[0] // {}) as $a | ($a.total | num) as $at
@@ -364,34 +365,34 @@ peak_label=""
   | ($d.adp_exceptions | map(select(.code != "504"))) as $mapping
   | $d.errors as $e
   | [
-    "📊 Nexus daily status \($overall)",
-    "🕔 \($d.meta.from) → \($d.meta.to) (COT)",
+    "📊 Estado diario Nexus \($overall)",
+    "🕔 \($d.meta.from) → \($d.meta.to) (hora Colombia)",
     "",
     "🌐 API Gateway \($lights[0])",
-    "• \($at | fmt) requests | 2xx \(pct($a.s2xx | num; $at))% | 4xx \(pct($a.s4xx | num; $at))% | 5xx \($p5)% | p95 \($a.p95 | fmt) ms",
-    "• Most errors: " + ([$d.api_by_api[] | select((.s4xx | num) + (.s5xx | num) > 0)][0:3]
-        | map("\(.API) 5xx \(.s5xx | fmt) / 4xx \(.s4xx | fmt) of \(.total | fmt)") | orNone | join(" · ")),
+    "• \($at | fmt) peticiones | 2xx \(pct($a.s2xx | num; $at) | pc)% | 4xx \(pct($a.s4xx | num; $at) | pc)% | 5xx \($p5 | pc)% | p95 \($a.p95 | fmt) ms",
+    "• Más errores: " + ([$d.api_by_api[] | select((.s4xx | num) + (.s5xx | num) > 0)][0:3]
+        | map("\(.API) 5xx \(.s5xx | fmt) / 4xx \(.s4xx | fmt) de \(.total | fmt)") | orNone | join(" · ")),
     "",
-    "🔌 Adapters \($lights[1])",
-    "• \($rt | fmt) responses | OK \(pct($r.ok | num; $rt))% | 412 business \(pct($r.negocio | num; $rt))% | error \($pe)%",
-    "• Most errors: " + ([$d.adp_by_service[] | select((.error | num) > 0)][0:3]
+    "🔌 Adaptadores \($lights[1])",
+    "• \($rt | fmt) respuestas | OK \(pct($r.ok | num; $rt) | pc)% | 412 negocio \(pct($r.negocio | num; $rt) | pc)% | error \($pe | pc)%",
+    "• Más errores: " + ([$d.adp_by_service[] | select((.error | num) > 0)][0:3]
         | map("\(.servicio // "-")/\(.canal // "-") \(.error | fmt)") | orNone | join(" · ")),
-    "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — top: " +
+    "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — principales: " +
         ($timeouts | group_by([.service, .channel]) | map({k: "\(.[0].service // "-")/\(.[0].channel // "-")", n: ([.[].total | num] | add)})
          | sort_by(-.n) | .[0:3] | map("\(.k) (\(.n | fmt))") | join(" · ")) else "" end),
-    "• Mapping errors: \([$mapping[].total | num] | add // 0 | fmt)" + (if ($mapping | length) > 0 then " — top: " +
+    "• Errores de mapeo: \([$mapping[].total | num] | add // 0 | fmt)" + (if ($mapping | length) > 0 then " — principales: " +
         ($mapping[0:3] | map("\(.code) \(.errorMsg | cut(50)) [\(.field // "-")] \(.service // "-")/\(.channel // "-") (\(.total | fmt))") | join(" · ")) else "" end),
-    "• Slowest p95: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
-    "• Peak error hour: " + (if $d.meta.peak == "" then "none" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errors)" end),
+    "• p95 más lento: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
+    "• Hora pico de errores: " + (if $d.meta.peak == "" then "ninguna" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errores)" end),
     "",
-    "📡 Channel (mngr) \($lights[2])",
-    "• Rejected (M): \($pm)% of \($m.total | fmt) responses",
-    "• Top rejections: " + ($d.mngr_rejects[0:3]
+    "📡 Canal (mngr) \($lights[2])",
+    "• Rechazos (M): \($pm | pc)% de \($m.total | fmt) respuestas",
+    "• Principales rechazos: " + ($d.mngr_rejects[0:3]
         | map("\(.nombreOperacion // "-") · \(.msgRespuesta // "-" | cut(50)) · canal \(.canal // "-") (\(.rejected | fmt))") | orNone | join(" | ")),
-    "• Error transactions: \($e.rqids | fmt) rqids in \($e.groups | length) groups (channel found for \($e.with_canal | fmt))"
+    "• Transacciones con error: \($e.rqids | fmt) rqids en \($e.groups | length) grupos (canal identificado en \($e.with_canal | fmt))"
   ]
-  + ($e.groups[0:5] | to_entries | map("  \(.key + 1). \(.value.msg | if . == "" then "(no msgRespuesta)" else cut(60) end) | canal \(.value.canal | if . == "" then "?" else . end) | \(.value.op | if . == "" then "-" else . end) — \(.value.count | fmt)"))
-  + (if $d.meta.truncated == 1 then ["", "⚠️ Some queries hit the 10,000-row limit; counts may be low (lower CHUNK_HOURS)."] else [] end)
+  + ($e.groups[0:5] | to_entries | map("  \(.key + 1). \(.value.msg | if . == "" then "(sin msgRespuesta)" else cut(60) end) | canal \(.value.canal | if . == "" then "?" else . end) | \(.value.op | if . == "" then "-" else . end) — \(.value.count | fmt)"))
+  + (if $d.meta.truncated == 1 then ["", "⚠️ Algunas consultas llegaron al límite de 10.000 filas; los conteos pueden quedar cortos (bajá CHUNK_HOURS)."] else [] end)
   | .[]' | tr -d '\r' > "$OUT_DIR/report.txt"
 
 log "Done -> $OUT_DIR/report.txt"
