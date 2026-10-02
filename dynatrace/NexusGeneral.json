@@ -61,7 +61,7 @@
     "10": {
       "type": "data",
       "title": "ERRORES DE MAPEO",
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'Exception:' SPACE? INT:code\"\n| filter code != 504\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD:message ' .'\"\n| parse content, \"LD '3=' LD:field SPACE? '::HEAD::'\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { code, message, field, service, channel }\n| sort total desc\n| limit 1000",
+      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code == 400\n| parse content, \"LD 'Exception:' LD ' .' LD:direction ': ' LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd p1 = splitString(params, \", 2=\")[0]\n| parse params, \"LD ', 3=' LD:p3\"\n| fieldsAdd field = trim(if(contains(rule, \"para: %3\"), p3, else: p1))\n| fieldsAdd adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { direction, rule, field, adapter, service, channel }\n| sort total desc\n| limit 1000",
       "visualization": "table"
     },
     "11": {
