@@ -255,7 +255,7 @@ Q_ERRORS="fields @timestamp, @message
 | parse @message /<nombreOperacion>(?<op>[^<]+)<\/nombreOperacion>/
 | parse @message /<msgRespuesta>(?<msg>[^<]+)<\/msgRespuesta>/
 | filter ispresent(rqid)
-| fields rqid, coalesce(tag, '') as canalTag, coalesce(op, '') as opName, coalesce(msg, '') as msgText
+| fields coalesce(tag, '') as canalTag, coalesce(op, '') as opName, coalesce(msg, '') as msgText
 | stats count(*) as lines by rqid, canalTag, opName, msgText
 | limit 10000"
 
@@ -279,10 +279,20 @@ groups_of() {
 
 log "Submitting ${#Q_TEXT[@]} queries"
 declare -A QID
+# a failed submit must not leave the already started queries running (and billing) in AWS
+stop_submitted() {
+  local n stopped=0
+  for n in "${!QID[@]}"; do
+    [ -n "${QID[$n]}" ] || continue   # the failed one is assigned an empty id
+    aws_cli logs stop-query --region "$REGION" --query-id "${QID[$n]}" >/dev/null 2>&1 || true
+    stopped=$((stopped + 1))
+  done
+  log "  stopped $stopped already started quer(y/ies)"
+}
 for name in "${!Q_TEXT[@]}"; do
   read -r qs qe <<<"${Q_RANGE[$name]:-$START $END}"
   mapfile -t groups < <(groups_of "${Q_KIND[$name]}")
-  QID[$name]=$(cw_submit "${Q_TEXT[$name]}" "$qs" "$qe" "${groups[@]}") || die "could not start query '$name'"
+  QID[$name]=$(cw_submit "${Q_TEXT[$name]}" "$qs" "$qe" "${groups[@]}") || { stop_submitted; die "could not start query '$name'"; }
   debug "$name -> ${QID[$name]}"
 done
 
