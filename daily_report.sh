@@ -5,13 +5,15 @@
 # Self-contained on purpose (copy-paste this single file). The log group lists below mirror the SOURCE
 # lines of NexusGeneral.json; when the dashboard gains or drops a log group, update them here too.
 #
-# Usage:  ./daily_report.sh                                   # yesterday 17:00 -> now (Colombia time, UTC-5)
+# Usage:  ./daily_report.sh                                   # yesterday 17:00 -> today 08:00 (Colombia time, UTC-5)
 #         ./daily_report.sh "YYYY-MM-DD HH:MM:SS" ["YYYY-MM-DD HH:MM:SS"]   # explicit start [and end]
 # Output: results/daily_<start>__<end>/report.txt (also printed to stdout) and one CSV per section
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0/1/2),
 #                    START_TIME   default window start, time of day yesterday (default 17:00)
+#                    END_TIME     default window end, time of day today (default 08:00); before that hour
+#                                 the window ends now
 #                    CHUNK_HOURS  slice size for the per-rqid error query, keeps each slice under the
 #                                 10,000-row Insights limit (default 4)
 #                    ERROR_PATTERN1, ERROR_PATTERN2   mngr error markers (default Error / ERROR)
@@ -21,10 +23,10 @@
 #                    CACHE_DAYS   cached results older than this are deleted at startup (default 7)
 #
 # Cache: every completed query result is stored under CACHE_DIR, keyed by query text + log groups + exact
-# window, so editing a query never serves stale rows. A default run ends at "now", so its KPI queries
-# never hit; what does: the error slices already closed (aligned to the window start), re-running an
-# explicit past window (e.g. after changing thresholds), and retrying a failed run with the command it
-# prints. A cached result is the snapshot taken when it was fetched (late-ingested logs are not added).
+# window, so editing a query never serves stale rows. After END_TIME the default window is fixed for the
+# day, so a second run that day (e.g. after changing thresholds) costs no AWS queries; before END_TIME the
+# window ends "now" and only the closed error slices hit. A failed run prints the command to retry the
+# same window. A cached result is the snapshot taken when it was fetched (late-ingested logs are not added).
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
@@ -139,6 +141,7 @@ cw_collect() {
 
 OUT_BASE="${OUT_BASE:-results}"
 START_TIME="${START_TIME:-17:00}"
+END_TIME="${END_TIME:-08:00}"
 CHUNK_HOURS="${CHUNK_HOURS:-4}"
 ERROR_PATTERN1="${ERROR_PATTERN1:-Error}"
 ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
@@ -161,7 +164,14 @@ if [ $# -ge 1 ]; then
 else
   START=$(to_epoch "$(cot_fmt "$((NOW - 86400))" %F) ${START_TIME}:00")
 fi
-if [ $# -ge 2 ]; then END=$(to_epoch "$2"); else END=$NOW; fi
+if [ $# -ge 2 ]; then
+  END=$(to_epoch "$2")
+elif [ $# -eq 1 ]; then
+  END=$NOW
+else
+  END=$(to_epoch "$(cot_fmt "$NOW" %F) ${END_TIME}:00")
+  [ "$END" -le "$NOW" ] || END=$NOW   # run before END_TIME: the window can't end in the future
+fi
 [ "$START" -lt "$END" ] || die "start time must be before end time"
 
 OUT_DIR="${OUT_BASE}/daily_$(cot_fmt "$START" %Y%m%d_%H%M)__$(cot_fmt "$END" %Y%m%d_%H%M)"
