@@ -17,6 +17,14 @@
 #                    ERROR_PATTERN1, ERROR_PATTERN2   mngr error markers (default Error / ERROR)
 #                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (1/5),
 #                                                 WARN_REJECT/CRIT_REJECT (5/10)
+#                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .daily_report_cache),
+#                    CACHE_DAYS   cached results older than this are deleted at startup (default 7)
+#
+# Cache: every completed query result is stored under CACHE_DIR, keyed by query text + log groups + exact
+# window, so editing a query never serves stale rows. A default run ends at "now", so its KPI queries
+# never hit; what does: the error slices already closed (aligned to the window start), re-running an
+# explicit past window (e.g. after changing thresholds), and retrying a failed run with the command it
+# prints. A cached result is the snapshot taken when it was fetched (late-ingested logs are not added).
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
@@ -137,6 +145,9 @@ ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
 WARN_5XX="${WARN_5XX:-1}"         CRIT_5XX="${CRIT_5XX:-5}"
 WARN_ADP_ERR="${WARN_ADP_ERR:-1}" CRIT_ADP_ERR="${CRIT_ADP_ERR:-5}"
 WARN_REJECT="${WARN_REJECT:-5}"   CRIT_REJECT="${CRIT_REJECT:-10}"
+CACHE="${CACHE:-1}"
+CACHE_DIR="${CACHE_DIR:-.daily_report_cache}"
+CACHE_DAYS="${CACHE_DAYS:-7}"
 
 [ $# -le 2 ] || die "usage: $0 [\"YYYY-MM-DD HH:MM:SS\" [\"YYYY-MM-DD HH:MM:SS\"]]  (Colombia time)"
 command -v aws >/dev/null || die "aws cli not found"
@@ -156,6 +167,38 @@ if [ $# -ge 2 ]; then END=$(to_epoch "$2"); else END=$NOW; fi
 OUT_DIR="${OUT_BASE}/daily_$(cot_fmt "$START" %Y%m%d_%H%M)__$(cot_fmt "$END" %Y%m%d_%H%M)"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
+
+declare -A QID=() CACHE_OF=()   # "=()" matters: under set -u a never-assigned array is unbound
+
+# a failure (in submit or collect) must not leave started queries running (and billing) in AWS;
+# stopping one that already completed just fails quietly
+stop_submitted() {
+  local n stopped=0
+  for n in "${!QID[@]}"; do
+    [ -n "${QID[$n]}" ] || continue   # a failed submit is assigned an empty id
+    aws_cli logs stop-query --region "$REGION" --query-id "${QID[$n]}" >/dev/null 2>&1 || true
+    stopped=$((stopped + 1))
+  done
+  if [ "$stopped" -gt 0 ]; then log "  sent stop to $stopped started quer(y/ies)"; fi
+}
+
+# on any failure: stop what's running, then print how to retry this exact window reusing the cache
+RETRY_CMD="$0 \"$(cot_fmt "$START" '%F %T')\" \"$(cot_fmt "$END" '%F %T')\""
+on_exit() {
+  local rc=$?
+  [ "$rc" -ne 0 ] || return 0
+  stop_submitted
+  if [ "$CACHE" = 1 ]; then log "Retry this same window (completed queries come from the cache): $RETRY_CMD"; fi
+}
+trap on_exit EXIT
+
+if [ "$CACHE" = 1 ]; then
+  mkdir -p "$CACHE_DIR"
+  for f in "$CACHE_DIR"/*.json; do
+    [ -e "$f" ] || continue
+    [ $((NOW - $(date -r "$f" +%s))) -lt $((CACHE_DAYS * 86400)) ] || rm -f "$f"
+  done
+fi
 
 log "Window $(cot_fmt "$START" '%F %H:%M') -> $(cot_fmt "$END" '%F %H:%M') COT | ${#API_GROUPS[@]} api, ${#ADAPTER_GROUPS[@]} adapter, ${#MNGR_GROUPS[@]} mngr log groups"
 debug "region=$REGION out=$OUT_DIR"
@@ -277,29 +320,41 @@ groups_of() {
 
 # ---------------------------------------------------------------- submit all, then collect
 
-log "Submitting ${#Q_TEXT[@]} queries"
-declare -A QID
-# a failed submit must not leave the already started queries running (and billing) in AWS
-stop_submitted() {
-  local n stopped=0
-  for n in "${!QID[@]}"; do
-    [ -n "${QID[$n]}" ] || continue   # the failed one is assigned an empty id
-    aws_cli logs stop-query --region "$REGION" --query-id "${QID[$n]}" >/dev/null 2>&1 || true
-    stopped=$((stopped + 1))
-  done
-  log "  stopped $stopped already started quer(y/ies)"
+# cache_file <name> <start> <end>  -> where that query's result for that exact window is cached
+cache_file() {
+  local key
+  key=$({ printf '%s\n' "${Q_TEXT[$1]}"; groups_of "${Q_KIND[$1]}"; } | cksum | cut -d' ' -f1)
+  printf '%s/%s_%s_%s.json' "$CACHE_DIR" "$key" "$2" "$3"
 }
+
+hits=0
 for name in "${!Q_TEXT[@]}"; do
   read -r qs qe <<<"${Q_RANGE[$name]:-$START $END}"
+  if [ "$CACHE" = 1 ]; then
+    CACHE_OF[$name]=$(cache_file "$name" "$qs" "$qe")
+    if [ -s "${CACHE_OF[$name]}" ]; then
+      cp "${CACHE_OF[$name]}" "$TMP/$name.json"
+      hits=$((hits + 1))
+      debug "$name -> cache hit"
+      continue
+    fi
+  fi
   mapfile -t groups < <(groups_of "${Q_KIND[$name]}")
-  QID[$name]=$(cw_submit "${Q_TEXT[$name]}" "$qs" "$qe" "${groups[@]}") || { stop_submitted; die "could not start query '$name'"; }
+  QID[$name]=$(cw_submit "${Q_TEXT[$name]}" "$qs" "$qe" "${groups[@]}") || die "could not start query '$name'"
   debug "$name -> ${QID[$name]}"
 done
+log "${#Q_TEXT[@]} queries: $hits from the cache, ${#QID[@]} sent to AWS"
 
-log "Collecting results"
-TRUNCATED=0
+if [ "${#QID[@]}" -gt 0 ]; then log "Collecting results"; fi
 for name in "${!QID[@]}"; do
   cw_collect "${QID[$name]}" > "$TMP/$name.json"
+  if [ "$CACHE" = 1 ]; then   # write-then-rename: an interrupted copy never leaves a half file behind
+    cp "$TMP/$name.json" "${CACHE_OF[$name]}.part" && mv "${CACHE_OF[$name]}.part" "${CACHE_OF[$name]}"
+  fi
+done
+
+TRUNCATED=0
+for name in "${!Q_TEXT[@]}"; do
   rows=$(jq '.results | length' < "$TMP/$name.json" | tr -d '\r')
   if [ "$rows" -ge 10000 ]; then
     TRUNCATED=1
