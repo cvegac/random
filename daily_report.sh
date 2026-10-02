@@ -320,18 +320,23 @@ add_query mngr_rejects mngr 'fields @timestamp, @message
 | sort rejected desc
 | limit 100'
 
-# Per-rqid error detail. The channel is the [rqid][channel] tag of the mngr line (same value as the
-# adapter X-Name), which replaces summarize_errors.sh's step 2 re-scan. Some lines carry the log level
-# in that slot ([rqid][ERROR ...]); those values are discarded when grouping.
-Q_ERRORS="fields @timestamp, @message
-| filter (@message like '${ERROR_PATTERN1}' or @message like '${ERROR_PATTERN2}')
-| parse @message /\[(?<rqid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/
-| parse @message /\[[0-9a-f-]{36}\]\[(?<tag>[^\]]*)\]/
+# Per-rqid error detail with the channel taken from the adapter X-Name, joined inside one query over the
+# mngr AND adapter log groups: mngr error lines carry the rqid as [uuid], the adapter ::AUDIT::REQ:: line
+# carries X-RqUid=uuid and X-Name. Both are normalized to rqid and aggregated per rqid; only rqids with a
+# mngr error line survive. (The mngr [rqid][tag] slot was tried first: it held the channel for 0 of 1,195
+# rqids on real data.) One row per error rqid, so the jq step below keeps the rqid lists for the CSV.
+Q_ERRORS="fields @timestamp, @message, @log
+| filter @message like '${ERROR_PATTERN1}' or @message like '${ERROR_PATTERN2}' or @message like '::AUDIT::REQ::'
+| parse @log /(?<mngrLog>-mngr)\$/
+| parse @message /\[(?<mngrRqid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/
+| parse @message /X-RqUid=(?<adpRqid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/
+| parse @message /X-Name=(?<xname>[^,\]]+)/
 | parse @message /<nombreOperacion>(?<op>[^<]+)<\/nombreOperacion>/
 | parse @message /<msgRespuesta>(?<msg>[^<]+)<\/msgRespuesta>/
+| fields coalesce(mngrRqid, adpRqid) as rqid, if(isPresent(mngrLog), 1, 0) as isErr
 | filter ispresent(rqid)
-| fields coalesce(tag, '') as canalTag, coalesce(op, '') as opName, coalesce(msg, '') as msgText
-| stats count(*) as lines by rqid, canalTag, opName, msgText
+| stats sum(isErr) as errLines, latest(xname) as canal, latest(op) as opName, latest(msg) as msgText by rqid
+| filter errLines > 0
 | limit 10000"
 
 ERROR_CHUNKS=()
@@ -339,7 +344,7 @@ chunk=$((CHUNK_HOURS * 3600))
 for ((s = START, i = 0; s < END; s += chunk, i++)); do
   e=$((s + chunk - 1)); [ "$e" -le "$END" ] || e=$END
   ERROR_CHUNKS+=("errors_$i")
-  Q_KIND[errors_$i]=mngr; Q_TEXT[errors_$i]=$Q_ERRORS; Q_RANGE[errors_$i]="$s $e"
+  Q_KIND[errors_$i]=mngr_adapter; Q_TEXT[errors_$i]=$Q_ERRORS; Q_RANGE[errors_$i]="$s $e"
 done
 
 groups_of() {
@@ -347,6 +352,7 @@ groups_of() {
     api)     printf '%s\n' "${API_GROUPS[@]}" ;;
     adapter) printf '%s\n' "${ADAPTER_GROUPS[@]}" ;;
     mngr)    printf '%s\n' "${MNGR_GROUPS[@]}" ;;
+    mngr_adapter) printf '%s\n' "${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}" ;;
   esac
 }
 
@@ -405,14 +411,11 @@ for name in api_by_api adp_by_service adp_errors adp_exceptions adp_latency mngr
   to_csv < "$TMP/$name.json" > "$OUT_DIR/$name.csv"
 done
 
-# error rqids -> one row per rqid (first non-empty op/msg, first tag that isn't a log level) -> groups
+# error rqids -> one row per rqid (an rqid can repeat across slices: first non-empty value wins) -> groups
 for name in "${ERROR_CHUNKS[@]}"; do jq -c "$FLAT" < "$TMP/$name.json"; done | tr -d '\r' | jq -s '
+  def firstset(f): [.[] | f | select(. != null and . != "")] | .[0] // "";
   group_by(.rqid) | map(
-    {rqid: .[0].rqid,
-     op:    ([.[].opName   | select(. != "")] | .[0] // ""),
-     msg:   ([.[].msgText  | select(. != "")] | .[0] // ""),
-     canal: ([.[].canalTag | select(. != "" and (test("^(INFO|ERROR|WARN|WARNING|DEBUG|TRACE|FATAL)\\b") | not))]
-             | .[0] // "")})
+    {rqid: .[0].rqid, op: firstset(.opName), msg: firstset(.msgText), canal: firstset(.canal)})
   | {rqids: length, with_canal: (map(select(.canal != "")) | length),
      groups: (group_by([.msg, .canal, .op]) | sort_by(-length)
               | map({msg: .[0].msg, canal: .[0].canal, op: .[0].op, count: length, rqids: (map(.rqid) | join("|"))}))}
