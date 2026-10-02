@@ -1,1 +1,2 @@
-.query_nexus_cache/
+# script output: real rqids, channels and backend messages, never commit (public repo)
+results/
