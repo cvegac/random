@@ -257,14 +257,35 @@ add_query adp_peak adapter "$ADP_RESP
 | sort errores desc
 | limit 1"
 
-# errorMsg stops at the first "." on purpose: what follows is raw backend data with customer PII
+# Specific adapter error (same as the Dynatrace "RQUIDS CON ERROR 4XX/5XX" columns), grouped.
+add_query adp_errors adapter "$ADP_RESP
+| filter codigo not like /^2/ and codigo != \"412\"
+| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/
+| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/
+| parse @message /X-Name=(?<canal>[^,\]]+)/
+| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\]]+)/
+| stats count(*) as total by codigo, sistema, errorMensaje, servicio, canal
+| sort total desc
+| limit 1000"
+
+# Mapping errors, translated from the Dynatrace "ERRORES DE MAPEO" tile. The line looks like
+#   Exception: 400 :: <errorMsg> .<DIRECTION>: <rule with %1 %2 %3>. 1=<p1>, 2=<p2>, 3=<p3> ::HEAD::
+# The field is p3 when the rule says "para: %3", otherwise p1. p1..p3 can be customer values (PII), so
+# they only reach the CSV (ex1..ex3), never the chat text. errorMsg stops at the first "." for the same
+# reason. code 504 rows are the timeouts, split out when rendering.
 add_query adp_exceptions adapter 'fields @message
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
 | parse @message /Exception:\s*(?<code>\d+)\s*::\s*(?<errorMsg>[^.]*[^.\s])/
-| parse @message /3=(?<field>[A-Za-z0-9_.]+)\s*::HEAD::/
+| parse @message /Exception:\s*\d+\s*::[^.]*\.(?<direction>[A-Za-z]+):\s*(?<rule>.*?)\. 1=(?<params>.*?)\s*::HEAD::/
+| parse params /^(?<p1>.*?)(?:, 2=|$)/
+| parse params /, 2=(?<p2>.*?)(?:, 3=|$)/
+| parse params /, 3=(?<p3>.*)$/
+| parse rule /(?<ruleUsesP3>para: %3)/
 | parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\]]+)/
 | parse @message /X-Name=(?<channel>[^,\]]+)/
-| stats count(*) as total by code, errorMsg, field, service, channel
+| fields if(isPresent(ruleUsesP3), p3, p1) as campo
+| stats count(*) as total, latest(p1) as ex1, latest(p2) as ex2, latest(p3) as ex3
+    by code, errorMsg, direction, rule, campo, service, channel
 | sort total desc
 | limit 10000'
 
@@ -379,7 +400,7 @@ to_csv() {   # Insights results JSON on stdin -> CSV; header = every field seen 
            (reduce (.[] | keys_unsorted[]) as \$x ([]; if any(.[]; . == \$x) then . else . + [\$x] end)) as \$k
            | (\$k | @csv), (.[] | [.[\$k[]]] | @csv) end" | tr -d '\r'
 }
-for name in api_by_api adp_by_service adp_exceptions adp_latency mngr_rejects; do
+for name in api_by_api adp_by_service adp_errors adp_exceptions adp_latency mngr_rejects; do
   to_csv < "$TMP/$name.json" > "$OUT_DIR/$name.csv"
 done
 
@@ -407,7 +428,7 @@ peak_label=""
 [ -z "$peak_utc" ] || peak_label=$(cot_fmt "$(date -u -d "${peak_utc%.*} UTC" +%s)" '%d/%m %H:00')
 
 {
-  for name in api_kpi api_by_api adp_kpi adp_by_service adp_peak adp_exceptions adp_latency mngr_reject_pct mngr_rejects; do
+  for name in api_kpi api_by_api adp_kpi adp_by_service adp_errors adp_peak adp_exceptions adp_latency mngr_reject_pct mngr_rejects; do
     jq -c --arg n "$name" "{(\$n): [$FLAT]}" < "$TMP/$name.json"
   done
   jq -c '{errors: .}' < "$TMP/errors.json"
@@ -452,11 +473,17 @@ peak_label=""
     "• \($rt | fmt) respuestas | OK \(pct($r.ok_2xx | num; $rt) | pc)% | 412 negocio \(pct($r.negocio_412 | num; $rt) | pc)% | error \($pe | pc)%",
     "• Más errores: " + ([$d.adp_by_service[] | select((.error | num) > 0)][0:3]
         | map("\(.servicio // "-")/\(.canal // "-") \(.error | fmt)") | orNone | join(" · ")),
+    "• Errores puntuales: " + ($d.adp_errors[0:3]
+        | map("\(.codigo) \(.sistema // "-") · \(.errorMensaje // "(sin mensaje)" | cut(50)) · \(.servicio // "-")/\(.canal // "-") (\(.total | fmt))")
+        | orNone | join(" | ")),
     "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — principales: " +
         ($timeouts | group_by([.service, .channel]) | map({k: "\(.[0].service // "-")/\(.[0].channel // "-")", n: ([.[].total | num] | add)})
          | sort_by(-.n) | .[0:3] | map("\(.k) (\(.n | fmt))") | join(" · ")) else "" end),
     "• Errores de mapeo: \([$mapping[].total | num] | add // 0 | fmt)" + (if ($mapping | length) > 0 then " — principales: " +
-        ($mapping[0:3] | map("\(.code) \(.errorMsg | cut(50)) [\(.field // "-")] \(.service // "-")/\(.channel // "-") (\(.total | fmt))") | join(" · ")) else "" end),
+        ($mapping[0:3] | map(
+           (if (.rule // "") != "" then "\(.rule | cut(60)) (\(.direction // "-") \(.campo // "-"))"
+            else "\(.code) \(.errorMsg | cut(50))" end)
+           + " · \(.service // "-")/\(.channel // "-") (\(.total | fmt))") | join(" | ")) else "" end),
     "• p95 más lento: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
     "• Hora pico de errores: " + (if $d.meta.peak == "" then "ninguna" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errores)" end),
     "",
