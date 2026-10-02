@@ -270,9 +270,10 @@ add_query adp_errors adapter "$ADP_RESP
 
 # Mapping errors, translated from the Dynatrace "ERRORES DE MAPEO" tile. The line looks like
 #   Exception: 400 :: <errorMsg> .<DIRECTION>: <rule with %1 %2 %3>. 1=<p1>, 2=<p2>, 3=<p3> ::HEAD::
-# The field is p3 when the rule says "para: %3", otherwise p1. p1..p3 can be customer values (PII), so
-# they only reach the CSV (ex1..ex3), never the chat text. errorMsg stops at the first "." for the same
-# reason. code 504 rows are the timeouts, split out when rendering.
+# The field is p3 when the rule says "para: %3", otherwise p1. ex1..ex3 (latest p1..p3 of the group)
+# fill the rule into an example, like the Dynatrace "example" column; the user wants it in the chat text
+# even though p1..p3 can be customer values. errorMsg stops at the first "." (what follows is raw backend
+# data). code 504 rows are the timeouts, split out when rendering.
 add_query adp_exceptions adapter 'fields @message
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
 | parse @message /Exception:\s*(?<code>\d+)\s*::\s*(?<errorMsg>[^.]*[^.\s])/
@@ -479,11 +480,14 @@ peak_label=""
     "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — principales: " +
         ($timeouts | group_by([.service, .channel]) | map({k: "\(.[0].service // "-")/\(.[0].channel // "-")", n: ([.[].total | num] | add)})
          | sort_by(-.n) | .[0:3] | map("\(.k) (\(.n | fmt))") | join(" · ")) else "" end),
-    "• Errores de mapeo: \([$mapping[].total | num] | add // 0 | fmt)" + (if ($mapping | length) > 0 then " — principales: " +
-        ($mapping[0:3] | map(
-           (if (.rule // "") != "" then "\(.rule | cut(60)) (\(.direction // "-") \(.campo // "-"))"
-            else "\(.code) \(.errorMsg | cut(50))" end)
-           + " · \(.service // "-")/\(.channel // "-") (\(.total | fmt))") | join(" | ")) else "" end),
+    # one row per group, like the Dynatrace table; "ej" = the rule with %1..%3 filled in (its "example")
+    ([ "• Errores de mapeo: \([$mapping[].total | num] | add // 0 | fmt)" ]
+     + ($mapping[0:5] | to_entries | map(.value as $x
+         | "  \(.key + 1). " + (if ($x.rule // "") != ""
+             then "\($x.rule) | \($x.direction // "-") \($x.campo // "-") | \($x.service // "-") · canal \($x.channel // "-") — \($x.total | fmt)\n"
+                  + "     ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1") | gsub("%2"; $x.ex2 // "%2") | gsub("%3"; $x.ex3 // "%3") | cut(120))
+             else "\($x.code) \($x.errorMsg | cut(60)) | \($x.service // "-") · canal \($x.channel // "-") — \($x.total | fmt)" end)))
+     | join("\n")),
     "• p95 más lento: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
     "• Hora pico de errores: " + (if $d.meta.peak == "" then "ninguna" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errores)" end),
     "",
