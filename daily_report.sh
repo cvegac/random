@@ -409,6 +409,9 @@ peak_label=""
     def lit(what; v; w; c): "\(light(v; w; c)) \(what) \(v | pc)% \(why(v; w; c))";
     def band(w; c): "🟢 menos de \(w | pc)%, 🟡 de \(w | pc)% a \(c | pc)%, 🔴 \(c | pc)% o más";
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
+    # a rule parameter can be a whole backend record (hundreds of chars, padded with spaces): collapse the
+    # spaces and keep only its start + length, so the rest of the rule ("no es un list valido, para: X") shows
+    def short(n): gsub("\\s+"; " ") | if length > n then .[0:n] + "… (\(length) caracteres)" else . end;
     def svc: if (. // "") == "" then "(sin servicio)" else . end;
     def chan: if (. // "") == "" then "(sin canal)" else . end;
     def sumby(f): group_by(f) | map(.[0] + {total: (map(.total | num) | add)}) | sort_by(-.total);
@@ -491,7 +494,8 @@ peak_label=""
           ["\($i + 1). \($x.campo // "-") (\($x.direction // "-")): \($x.total | fmt)",
            "   - Servicio: \($x.service | svc), adaptador \($x.adapter // "-")",
            "   - Regla: \($x.rule)",
-           "   - Ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1") | gsub("%2"; $x.ex2 // "%2") | gsub("%3"; $x.ex3 // "%3") | cut(120))]
+           "   - Ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1" | short(25)) | gsub("%2"; $x.ex2 // "%2" | short(40))
+                          | gsub("%3"; $x.ex3 // "%3" | short(40)) | cut(200))]
         else
           ["\($i + 1). \($x.code) \($x.errorMsg // "(sin mensaje)" | cut(60)): \($x.total | fmt)",
            "   - Servicio: \($x.service | svc), adaptador \($x.adapter // "-")"]
