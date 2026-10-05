@@ -2,8 +2,9 @@
 # Daily Nexus status report as a plain-text list ready to paste into a chat (no tables): summary KPIs,
 # top 5 services by adapter error % with their 2 most frequent errors, p95 latency (API Gateway) and
 # error % per service, mapping errors like the Dynatrace "ERRORES DE MAPEO" tile, 504 timeouts and other
-# technical errors. The mngr/channel queries still run for the CSVs (mngr_rejects, errors_summary) but
-# are left out of the chat text for now (user request). All queries are submitted at once.
+# technical errors. The channel comes from the adapter X-Name: the top 5 shows which channels fail on each
+# service. Every query aggregates inside CloudWatch (stats), so percentages cover 100% of the window and
+# results stay far below the 10,000-row limit even on -w/-wl. All queries are submitted at once.
 # Self-contained on purpose (copy-paste this single file). The log group lists below mirror the SOURCE
 # lines of NexusGeneral.json; when the dashboard gains or drops a log group, update them here too.
 #
@@ -18,12 +19,8 @@
 #                    START_TIME   default window start, time of day yesterday (default 17:00)
 #                    END_TIME     default window end, time of day today (default 08:00); before that hour
 #                                 the window ends now
-#                    CHUNK_HOURS  slice size for the per-rqid error query, keeps each slice under the
-#                                 10,000-row Insights limit (default 4)
-#                    ERROR_PATTERN1, ERROR_PATTERN2   mngr error markers (default Error / ERROR)
 #                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (5/10,
-#                                                 also the per-service lights),
-#                                                 WARN_REJECT/CRIT_REJECT (5/10)
+#                                                 also the per-service and per-channel lights)
 #                    TOP_MIN_RESPONSES  services below this volume only fill the "top 5 by error %"
 #                                 when not enough services reach it (default 50)
 #                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .daily_report_cache),
@@ -32,7 +29,7 @@
 # Cache: every completed query result is stored under CACHE_DIR, keyed by query text + log groups + exact
 # window, so editing a query never serves stale rows. After END_TIME the default window is fixed for the
 # day, so a second run that day (e.g. after changing thresholds) costs no AWS queries; before END_TIME the
-# window ends "now" and only the closed error slices hit. A failed run prints the command to retry the
+# window ends "now" and nothing hits. A failed run prints the command to retry the
 # same window. A cached result is the snapshot taken when it was fetched (late-ingested logs are not added).
 set -euo pipefail
 
@@ -65,12 +62,6 @@ ADAPTER_GROUPS=(
   /aws/ecs/srv/paymentsws-iseries-adapter /aws/ecs/srv/paymentsws-stratus-adapter
   /aws/ecs/srv/productsws-stratus-adapter /aws/ecs/srv/remittancesws-stratus-adapter
   /aws/ecs/srv/securityws-stratus-adapter
-)
-MNGR_GROUPS=(
-  /aws/ecs/srv/accountsws-mngr /aws/ecs/srv/acquiringws-mngr /aws/ecs/srv/clientsws-mngr
-  /aws/ecs/srv/credit-cardsws-mngr /aws/ecs/srv/insurancesws-mngr /aws/ecs/srv/investmentsws-mngr
-  /aws/ecs/srv/loansws-mngr /aws/ecs/srv/paymentsws-mngr /aws/ecs/srv/productsws-mngr
-  /aws/ecs/srv/remittancesws-mngr /aws/ecs/srv/securityws-mngr
 )
 
 log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
@@ -149,12 +140,8 @@ cw_collect() {
 OUT_BASE="${OUT_BASE:-results}"
 START_TIME="${START_TIME:-17:00}"
 END_TIME="${END_TIME:-08:00}"
-CHUNK_HOURS="${CHUNK_HOURS:-4}"
-ERROR_PATTERN1="${ERROR_PATTERN1:-Error}"
-ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
 WARN_5XX="${WARN_5XX:-1}"         CRIT_5XX="${CRIT_5XX:-5}"
 WARN_ADP_ERR="${WARN_ADP_ERR:-5}" CRIT_ADP_ERR="${CRIT_ADP_ERR:-10}"
-WARN_REJECT="${WARN_REJECT:-5}"   CRIT_REJECT="${CRIT_REJECT:-10}"
 TOP_MIN_RESPONSES="${TOP_MIN_RESPONSES:-50}"
 CACHE="${CACHE:-1}"
 CACHE_DIR="${CACHE_DIR:-.daily_report_cache}"
@@ -229,7 +216,7 @@ if [ "$CACHE" = 1 ]; then
   done
 fi
 
-log "Window $(cot_fmt "$START" '%F %H:%M') -> $(cot_fmt "$END" '%F %H:%M') COT${MODE:+ [$MODE]} | ${#API_GROUPS[@]} api, ${#ADAPTER_GROUPS[@]} adapter, ${#MNGR_GROUPS[@]} mngr log groups"
+log "Window $(cot_fmt "$START" '%F %H:%M') -> $(cot_fmt "$END" '%F %H:%M') COT${MODE:+ [$MODE]} | ${#API_GROUPS[@]} api, ${#ADAPTER_GROUPS[@]} adapter log groups"
 debug "region=$REGION out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
   debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r') | PYTHONIOENCODING=$PYTHONIOENCODING PYTHONUTF8=$PYTHONUTF8"
@@ -246,7 +233,7 @@ ADP_RESP='fields @timestamp, @message, @log
 | parse @message /::HTTPCODE::(?<ok>2\d\d)\b/
 | parse @message /::HTTPCODE::(?<negocio>412)\b/'
 
-declare -A Q_TEXT Q_KIND Q_RANGE      # Q_RANGE only for queries that don't span the whole window
+declare -A Q_TEXT Q_KIND
 add_query() { Q_KIND[$1]=$2; Q_TEXT[$1]=$3; }
 
 add_query api_kpi api "$API_BASE
@@ -332,59 +319,10 @@ add_query adp_latency adapter 'fields @timestamp, @message, @logStream, @log
 | sort p95 desc
 | limit 100'
 
-add_query mngr_reject_pct mngr 'fields @message
-| filter @message like "<caracterAceptacion>"
-| parse @message /<caracterAceptacion>(?<rechazo>M)<\/caracterAceptacion>/
-| stats count(*) as total, count(rechazo) as rejected'
-
-add_query mngr_rejects mngr 'fields @timestamp, @message
-| filter @message like /<caracterAceptacion>|<canal>/
-| parse @message /\] \[(?<rquid>[a-f0-9\-]{36})\]\[INFO/
-| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\/canal>/
-| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\/nombreOperacion>/
-| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\/caracterAceptacion>/
-| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\/codMsgRespuesta>/
-| parse @message /<msgRespuesta>(?<msg>[^<]+)<\/msgRespuesta>/
-| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,
-    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid
-| filter resultado = "M"
-| stats count(*) as rejected by canal, nombreOperacion, codMsgRespuesta, msgRespuesta
-| sort rejected desc
-| limit 100'
-
-# Per-rqid error detail with the channel taken from the adapter X-Name, joined inside one query over the
-# mngr AND adapter log groups: mngr error lines carry the rqid as [uuid], the adapter ::AUDIT::REQ:: line
-# carries X-RqUid=uuid and X-Name. Both are normalized to rqid and aggregated per rqid; only rqids with a
-# mngr error line survive. (The mngr [rqid][tag] slot was tried first: it held the channel for 0 of 1,195
-# rqids on real data.) One row per error rqid, so the jq step below keeps the rqid lists for the CSV.
-Q_ERRORS="fields @timestamp, @message, @log
-| filter @message like '${ERROR_PATTERN1}' or @message like '${ERROR_PATTERN2}' or @message like '::AUDIT::REQ::'
-| parse @log /(?<mngrLog>-mngr)\$/
-| parse @message /\[(?<mngrRqid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/
-| parse @message /X-RqUid=(?<adpRqid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/
-| parse @message /X-Name=(?<xname>[^,\]]+)/
-| parse @message /<nombreOperacion>(?<op>[^<]+)<\/nombreOperacion>/
-| parse @message /<msgRespuesta>(?<msg>[^<]+)<\/msgRespuesta>/
-| fields coalesce(mngrRqid, adpRqid) as rqid, if(isPresent(mngrLog), 1, 0) as isErr
-| filter ispresent(rqid)
-| stats sum(isErr) as errLines, latest(xname) as canal, latest(op) as opName, latest(msg) as msgText by rqid
-| filter errLines > 0
-| limit 10000"
-
-ERROR_CHUNKS=()
-chunk=$((CHUNK_HOURS * 3600))
-for ((s = START, i = 0; s < END; s += chunk, i++)); do
-  e=$((s + chunk - 1)); [ "$e" -le "$END" ] || e=$END
-  ERROR_CHUNKS+=("errors_$i")
-  Q_KIND[errors_$i]=mngr_adapter; Q_TEXT[errors_$i]=$Q_ERRORS; Q_RANGE[errors_$i]="$s $e"
-done
-
 groups_of() {
   case "$1" in
     api)     printf '%s\n' "${API_GROUPS[@]}" ;;
     adapter) printf '%s\n' "${ADAPTER_GROUPS[@]}" ;;
-    mngr)    printf '%s\n' "${MNGR_GROUPS[@]}" ;;
-    mngr_adapter) printf '%s\n' "${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}" ;;
   esac
 }
 
@@ -399,7 +337,7 @@ cache_file() {
 
 hits=0
 for name in "${!Q_TEXT[@]}"; do
-  read -r qs qe <<<"${Q_RANGE[$name]:-$START $END}"
+  qs=$START qe=$END
   if [ "$CACHE" = 1 ]; then
     CACHE_OF[$name]=$(cache_file "$name" "$qs" "$qe")
     if [ -s "${CACHE_OF[$name]}" ]; then
@@ -428,7 +366,7 @@ for name in "${!Q_TEXT[@]}"; do
   rows=$(jq '.results | length' < "$TMP/$name.json" | tr -d '\r')
   if [ "$rows" -ge 10000 ]; then
     TRUNCATED=1
-    log "  WARNING: '$name' hit 10,000 rows (truncated). Lower CHUNK_HOURS."
+    log "  WARNING: '$name' hit 10,000 rows (truncated)."
   fi
 done
 
@@ -439,23 +377,9 @@ to_csv() {   # Insights results JSON on stdin -> CSV; header = every field seen 
            (reduce (.[] | keys_unsorted[]) as \$x ([]; if any(.[]; . == \$x) then . else . + [\$x] end)) as \$k
            | (\$k | @csv), (.[] | [.[\$k[]]] | @csv) end" | tr -d '\r'
 }
-for name in api_by_api api_by_service adp_by_service adp_errors adp_exceptions adp_latency mngr_rejects; do
+for name in api_by_api api_by_service adp_by_service adp_errors adp_exceptions adp_latency; do
   to_csv < "$TMP/$name.json" > "$OUT_DIR/$name.csv"
 done
-
-# error rqids -> one row per rqid (an rqid can repeat across slices: first non-empty value wins) -> groups
-for name in "${ERROR_CHUNKS[@]}"; do jq -c "$FLAT" < "$TMP/$name.json"; done | tr -d '\r' | jq -s '
-  def firstset(f): [.[] | f | select(. != null and . != "")] | .[0] // "";
-  group_by(.rqid) | map(
-    {rqid: .[0].rqid, op: firstset(.opName), msg: firstset(.msgText), canal: firstset(.canal)})
-  | {rqids: length, with_canal: (map(select(.canal != "")) | length),
-     groups: (group_by([.msg, .canal, .op]) | sort_by(-length)
-              | map({msg: .[0].msg, canal: .[0].canal, op: .[0].op, count: length, rqids: (map(.rqid) | join("|"))}))}
-' > "$TMP/errors.json"
-
-jq -r '(["msgrespuesta","canal","nombreoperacion","rqid_count","rqids"] | @csv),
-       (.groups[] | [.msg, .canal, .op, .count, .rqids] | @csv)' < "$TMP/errors.json" | tr -d '\r' \
-  > "$OUT_DIR/errors_summary.csv"
 
 # ---------------------------------------------------------------- report
 
@@ -486,6 +410,7 @@ peak_label=""
     def band(w; c): "🟢 menos de \(w | pc)%, 🟡 de \(w | pc)% a \(c | pc)%, 🔴 \(c | pc)% o más";
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
     def svc: if (. // "") == "" then "(sin servicio)" else . end;
+    def chan: if (. // "") == "" then "(sin canal)" else . end;
     def sumby(f): group_by(f) | map(.[0] + {total: (map(.total | num) | add)}) | sort_by(-.total);
 
     ($d.meta.th) as $th
@@ -542,9 +467,19 @@ peak_label=""
       ($top | to_entries | map(.key as $i | .value as $s
         | ["\($i + 1). \(light($s.pct; $th.wa; $th.ca)) \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"
            + (if $s.low then ", poco volumen" else "" end)]
+          # which channels fail on this service (adapter X-Name), worst 3 by error count
+          + ([$d.adp_by_service[] | select((.servicio // "") == $s.servicio)
+              | {canal: (.canal // ""), total: (.total | num), error: (.error | num)}]
+             | map(select(.error > 0) | . + {pct: pct(.error; .total)}) | sort_by(-.error) | .[0:3]
+             | map("   - Canal \(.canal | chan): \(light(.pct; $th.wa; $th.ca)) \(.pct | pc)% de error (\(.error | fmt) de \(.total | fmt))"))
+          # its 2 most frequent errors, each with the channels where it shows up
           + ([$d.adp_errors[] | select((.servicio // "") == $s.servicio)]
-             | sumby([.codigo, .sistema, .errorMensaje]) | .[0:2]
-             | map("   - \(.codigo) \(.sistema // "-"): \(.errorMensaje // "(sin mensaje)" | cut(80)) (\(.total | fmt))")))
+             | group_by([.codigo, .sistema, .errorMensaje])
+             | map({row: .[0], total: (map(.total | num) | add),
+                    chans: (group_by(.canal // "") | map({canal: (.[0].canal // ""), n: (map(.total | num) | add)}) | sort_by(-.n))})
+             | sort_by(-.total) | .[0:2]
+             | map("   - Error \(.row.codigo) \(.row.sistema // "-"): \(.row.errorMensaje // "(sin mensaje)" | cut(80)) (\(.total | fmt); "
+                   + (.chans[0:3] | map("canal \(.canal | chan): \(.n | fmt)") | join(", ")) + ")")))
        | add) end)
   + ["", "⏱️ Latencia y error por servicio (p95 en API Gateway)"]
   + (if ($svcs | length) == 0 then ["• sin datos"] else
@@ -565,7 +500,7 @@ peak_label=""
   + ($timeouts[0:3] | map("   - \(.service | svc): \(.total | fmt)"))
   + ["", "⚙️ Otros errores técnicos: \(total_of($other_exc) | fmt)"]
   + ($other_exc[0:3] | map("   - HTTP \(.httpCode // "-"), código \(.code // "-"): \(.errorMsg // "(sin mensaje)" | cut(60)) en \(.service | svc) (\(.total | fmt))"))
-  + (if $d.meta.truncated == 1 then ["", "⚠️ Algunas consultas llegaron al límite de 10.000 filas; los conteos pueden quedar cortos (bajá CHUNK_HOURS)."] else [] end)
+  + (if $d.meta.truncated == 1 then ["", "⚠️ Algunas consultas llegaron al límite de 10.000 filas; los conteos pueden quedar cortos."] else [] end)
   | .[]' | tr -d '\r' > "$OUT_DIR/report.txt"
 
 log "Done -> $OUT_DIR/report.txt"
