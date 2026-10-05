@@ -8,6 +8,8 @@
 # lines of NexusGeneral.json; when the dashboard gains or drops a log group, update them here too.
 #
 # Usage:  ./daily_report.sh                                   # yesterday 17:00 -> today 08:00 (Colombia time, UTC-5)
+#         ./daily_report.sh -w                                # weekend, run on Monday: Friday 17:00 -> today 08:00
+#         ./daily_report.sh -wl                               # weekend + Monday holiday, run on Tuesday: Friday 17:00 -> today 08:00
 #         ./daily_report.sh "YYYY-MM-DD HH:MM:SS" ["YYYY-MM-DD HH:MM:SS"]   # explicit start [and end]
 # Output: results/daily_<start>__<end>/report.txt (also printed to stdout) and one CSV per section
 #
@@ -158,7 +160,15 @@ CACHE="${CACHE:-1}"
 CACHE_DIR="${CACHE_DIR:-.daily_report_cache}"
 CACHE_DAYS="${CACHE_DAYS:-7}"
 
-[ $# -le 2 ] || die "usage: $0 [\"YYYY-MM-DD HH:MM:SS\" [\"YYYY-MM-DD HH:MM:SS\"]]  (Colombia time)"
+# -w / -wl: the window starts N days back instead of yesterday (weekend run on Monday, or on Tuesday after
+# a Monday holiday), both from Friday START_TIME to today END_TIME
+DAYS_BACK=1 MODE=""
+case "${1:-}" in
+  -w)  DAYS_BACK=3 MODE="-w (fin de semana)"; shift ;;
+  -wl) DAYS_BACK=4 MODE="-wl (fin de semana con lunes festivo)"; shift ;;
+esac
+[ -z "$MODE" ] || [ $# -eq 0 ] || die "-w / -wl can't be combined with explicit dates"
+[ $# -le 2 ] || die "usage: $0 [-w | -wl | \"YYYY-MM-DD HH:MM:SS\" [\"YYYY-MM-DD HH:MM:SS\"]]  (Colombia time)"
 command -v aws >/dev/null || die "aws cli not found"
 command -v jq  >/dev/null || die "jq not found"
 
@@ -168,7 +178,10 @@ NOW=$(date +%s)
 if [ $# -ge 1 ]; then
   START=$(to_epoch "$1")
 else
-  START=$(to_epoch "$(cot_fmt "$((NOW - 86400))" %F) ${START_TIME}:00")
+  START=$(to_epoch "$(cot_fmt "$((NOW - DAYS_BACK * 86400))" %F) ${START_TIME}:00")
+fi
+if [ -n "$MODE" ] && [ "$(cot_fmt "$START" %u)" != 5 ]; then   # %u: 5 = Friday
+  log "WARNING: $MODE starts on $(cot_fmt "$START" '%A %F'), not a Friday (-w is meant for Monday, -wl for Tuesday)"
 fi
 if [ $# -ge 2 ]; then
   END=$(to_epoch "$2")
@@ -216,7 +229,7 @@ if [ "$CACHE" = 1 ]; then
   done
 fi
 
-log "Window $(cot_fmt "$START" '%F %H:%M') -> $(cot_fmt "$END" '%F %H:%M') COT | ${#API_GROUPS[@]} api, ${#ADAPTER_GROUPS[@]} adapter, ${#MNGR_GROUPS[@]} mngr log groups"
+log "Window $(cot_fmt "$START" '%F %H:%M') -> $(cot_fmt "$END" '%F %H:%M') COT${MODE:+ [$MODE]} | ${#API_GROUPS[@]} api, ${#ADAPTER_GROUPS[@]} adapter, ${#MNGR_GROUPS[@]} mngr log groups"
 debug "region=$REGION out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
   debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r') | PYTHONIOENCODING=$PYTHONIOENCODING PYTHONUTF8=$PYTHONUTF8"
