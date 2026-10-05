@@ -21,6 +21,8 @@
 #                    ERROR_PATTERN1, ERROR_PATTERN2   mngr error markers (default Error / ERROR)
 #                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (1/5),
 #                                                 WARN_REJECT/CRIT_REJECT (5/10)
+#                    TOP_MIN_RESPONSES  services below this volume only fill the "top 5 by error %"
+#                                 when not enough services reach it (default 50)
 #                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .daily_report_cache),
 #                    CACHE_DAYS   cached results older than this are deleted at startup (default 7)
 #
@@ -150,6 +152,7 @@ ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
 WARN_5XX="${WARN_5XX:-1}"         CRIT_5XX="${CRIT_5XX:-5}"
 WARN_ADP_ERR="${WARN_ADP_ERR:-1}" CRIT_ADP_ERR="${CRIT_ADP_ERR:-5}"
 WARN_REJECT="${WARN_REJECT:-5}"   CRIT_REJECT="${CRIT_REJECT:-10}"
+TOP_MIN_RESPONSES="${TOP_MIN_RESPONSES:-50}"
 CACHE="${CACHE:-1}"
 CACHE_DIR="${CACHE_DIR:-.daily_report_cache}"
 CACHE_DAYS="${CACHE_DAYS:-7}"
@@ -454,8 +457,8 @@ peak_label=""
     --arg from "$(cot_fmt "$START" '%d/%m %H:%M')" --arg to "$(cot_fmt "$END" '%d/%m %H:%M')" \
     --arg peak "$peak_label" --argjson truncated "$TRUNCATED" \
     --argjson w5 "$WARN_5XX" --argjson c5 "$CRIT_5XX" \
-    --argjson wa "$WARN_ADP_ERR" --argjson ca "$CRIT_ADP_ERR" \
-    '{meta: {$from, $to, $peak, $truncated, th: {$w5, $c5, $wa, $ca}}}'
+    --argjson wa "$WARN_ADP_ERR" --argjson ca "$CRIT_ADP_ERR" --argjson minr "$TOP_MIN_RESPONSES" \
+    '{meta: {$from, $to, $peak, $truncated, th: {$w5, $c5, $wa, $ca, $minr}}}'
 } | tr -d '\r' | jq -s -r 'add | . as $d
   | def num: (. // 0) | tonumber;
     def fmt: (num | round | tostring) as $s | ($s | length) as $n     # 1234567 -> "1.234.567" (es-CO)
@@ -479,7 +482,10 @@ peak_label=""
   | ($d.adp_by_service | group_by(.servicio // "")
      | map({servicio: (.[0].servicio // ""), total: (map(.total | num) | add), error: (map(.error | num) | add)})
      | map(. + {pct: pct(.error; .total), p95: $lat[.servicio | ascii_downcase].p95})) as $svcs
-  | ($svcs | map(select(.error > 0)) | sort_by(-.pct, -.error) | .[0:5]) as $top
+  # volume weighs first: services with >= minr responses rank by error %; low-volume ones (e.g. "1 of 1 =
+  # 100%") only fill the top 5 when not enough services reach the threshold
+  | ($svcs | map(select(.error > 0) | . + {low: (.total < $th.minr)})
+     | sort_by(.low, -.pct, -.error) | .[0:5]) as $top
   | ($d.adp_exceptions | map(select(.code == "504")) | sumby(.service // "")) as $timeouts
   # mapping errors grouped like the Dynatrace tile (without channel); the example comes from the biggest row
   | ($d.adp_exceptions | map(select(.code != "504" and .httpCode == "400"))
@@ -504,7 +510,8 @@ peak_label=""
   ]
   + (if ($top | length) == 0 then ["• ninguno"] else
       ($top | to_entries | map(.key as $i | .value as $s
-        | ["\($i + 1). \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"]
+        | ["\($i + 1). \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"
+           + (if $s.low then ", poco volumen" else "" end)]
           + ([$d.adp_errors[] | select((.servicio // "") == $s.servicio)]
              | sumby([.codigo, .sistema, .errorMensaje]) | .[0:2]
              | map("   - \(.codigo) \(.sistema // "-"): \(.errorMensaje // "(sin mensaje)" | cut(80)) (\(.total | fmt))")))
