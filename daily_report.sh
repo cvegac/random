@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Daily Nexus status report: the KPIs of the NexusGeneral dashboard (API Gateway, adapters, mngr/channel)
-# plus the error transactions grouped by (msgRespuesta, channel, nombreOperacion), rendered as plain text
-# ready to paste into a chat. All queries are submitted at once and collected afterwards.
+# Daily Nexus status report as a plain-text list ready to paste into a chat (no tables): summary KPIs,
+# top 5 services by adapter error % with their 2 most frequent errors, p95 latency (API Gateway) and
+# error % per service, mapping errors like the Dynatrace "ERRORES DE MAPEO" tile, 504 timeouts and other
+# technical errors. The mngr/channel queries still run for the CSVs (mngr_rejects, errors_summary) but
+# are left out of the chat text for now (user request). All queries are submitted at once.
 # Self-contained on purpose (copy-paste this single file). The log group lists below mirror the SOURCE
 # lines of NexusGeneral.json; when the dashboard gains or drops a log group, update them here too.
 #
@@ -241,13 +243,23 @@ add_query api_by_api api "$API_BASE
 | sort s5xx desc, s4xx desc
 | limit 100"
 
+# Per-service latency: end-to-end at the API Gateway. The service is the last resourcePath segment (the
+# NexusDetalleServicio CW dashboard filters resourcePath like "/<Service>"); the report matches it to the
+# adapter X-Referer service case-insensitively. Adapter HTTP codes give the error rate (SOAP answers 200).
+add_query api_by_service api "$API_BASE
+| parse resourcePath /(?<servicio>[^\/]+)\$/
+| stats count(*) as total, pct(responseLatency, 95) as p95 by servicio
+| limit 1000"
+
+# Errors = responses WITH a parsed HTTP code that is neither 2xx nor 412: a line whose code could not be
+# read is not an error (same fix as the Dynatrace "unknown" outcome).
 add_query adp_kpi adapter "$ADP_RESP
-| stats count(*) as total, count(ok) as ok_2xx, count(negocio) as negocio_412"
+| stats count(*) as total, count(codigo) as con_codigo, count(ok) as ok_2xx, count(negocio) as negocio_412"
 
 add_query adp_by_service adapter "$ADP_RESP
 | parse @message /X-Name=(?<canal>[^,\]]+)/
 | parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\]]+)/
-| stats count(*) as total, (count(*) - count(ok) - count(negocio)) as error by servicio, canal
+| stats count(*) as total, (count(codigo) - count(ok) - count(negocio)) as error by servicio, canal
 | sort error desc
 | limit 200"
 
@@ -275,8 +287,9 @@ add_query adp_errors adapter "$ADP_RESP
 # even though p1..p3 can be customer values. errorMsg stops at the first "." (what follows is raw backend
 # data). Rendering splits the rows: Exception 504 = timeouts, HttpCode 400 = mapping, anything else = other
 # technical errors (e.g. Exception 1111 "conexion rehusada" under HttpCode 503, which is not a mapping error).
-add_query adp_exceptions adapter 'fields @message
+add_query adp_exceptions adapter 'fields @message, @log
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
+| parse @log /\/aws\/ecs\/srv\/(?<adapter>\S+)$/
 | parse @message /HttpCode::\s*(?<httpCode>\d+)/
 | parse @message /Exception:\s*(?<code>\d+)\s*::\s*(?<errorMsg>[^.]*[^.\s])/
 | parse @message /Exception:\s*\d+\s*::[^.]*\.(?<direction>[A-Za-z]+):\s*(?<rule>.*?)\. 1=(?<params>.*?)\s*::HEAD::/
@@ -288,7 +301,7 @@ add_query adp_exceptions adapter 'fields @message
 | parse @message /X-Name=(?<channel>[^,\]]+)/
 | fields if(isPresent(ruleUsesP3), p3, p1) as campo
 | stats count(*) as total, latest(p1) as ex1, latest(p2) as ex2, latest(p3) as ex3
-    by httpCode, code, errorMsg, direction, rule, campo, service, channel
+    by httpCode, code, errorMsg, direction, rule, campo, adapter, service, channel
 | sort total desc
 | limit 10000'
 
@@ -409,7 +422,7 @@ to_csv() {   # Insights results JSON on stdin -> CSV; header = every field seen 
            (reduce (.[] | keys_unsorted[]) as \$x ([]; if any(.[]; . == \$x) then . else . + [\$x] end)) as \$k
            | (\$k | @csv), (.[] | [.[\$k[]]] | @csv) end" | tr -d '\r'
 }
-for name in api_by_api adp_by_service adp_errors adp_exceptions adp_latency mngr_rejects; do
+for name in api_by_api api_by_service adp_by_service adp_errors adp_exceptions adp_latency mngr_rejects; do
   to_csv < "$TMP/$name.json" > "$OUT_DIR/$name.csv"
 done
 
@@ -434,17 +447,15 @@ peak_label=""
 [ -z "$peak_utc" ] || peak_label=$(cot_fmt "$(date -u -d "${peak_utc%.*} UTC" +%s)" '%d/%m %H:00')
 
 {
-  for name in api_kpi api_by_api adp_kpi adp_by_service adp_errors adp_peak adp_exceptions adp_latency mngr_reject_pct mngr_rejects; do
+  for name in api_kpi api_by_service adp_kpi adp_by_service adp_errors adp_peak adp_exceptions; do
     jq -c --arg n "$name" "{(\$n): [$FLAT]}" < "$TMP/$name.json"
   done
-  jq -c '{errors: .}' < "$TMP/errors.json"
   jq -n -c \
     --arg from "$(cot_fmt "$START" '%d/%m %H:%M')" --arg to "$(cot_fmt "$END" '%d/%m %H:%M')" \
     --arg peak "$peak_label" --argjson truncated "$TRUNCATED" \
     --argjson w5 "$WARN_5XX" --argjson c5 "$CRIT_5XX" \
     --argjson wa "$WARN_ADP_ERR" --argjson ca "$CRIT_ADP_ERR" \
-    --argjson wr "$WARN_REJECT" --argjson cr "$CRIT_REJECT" \
-    '{meta: {$from, $to, $peak, $truncated, th: {$w5, $c5, $wa, $ca, $wr, $cr}}}'
+    '{meta: {$from, $to, $peak, $truncated, th: {$w5, $c5, $wa, $ca}}}'
 } | tr -d '\r' | jq -s -r 'add | . as $d
   | def num: (. // 0) | tonumber;
     def fmt: (num | round | tostring) as $s | ($s | length) as $n     # 1234567 -> "1.234.567" (es-CO)
@@ -453,60 +464,70 @@ peak_label=""
     def pc: tostring | sub("\\."; ",");                                 # 97.2 -> "97,2" (es-CO)
     def light(v; w; c): if v >= c then "🔴" elif v >= w then "🟡" else "🟢" end;
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
-    def orNone: if length == 0 then ["ninguno"] else . end;
+    def svc: if (. // "") == "" then "(sin servicio)" else . end;
+    def sumby(f): group_by(f) | map(.[0] + {total: (map(.total | num) | add)}) | sort_by(-.total);
 
     ($d.meta.th) as $th
   | ($d.api_kpi[0] // {}) as $a | ($a.total | num) as $at
   | pct($a.s5xx | num; $at) as $p5
   | ($d.adp_kpi[0] // {}) as $r | ($r.total | num) as $rt
-  | (($rt - ($r.ok_2xx | num) - ($r.negocio_412 | num))) as $rerr | pct($rerr; $rt) as $pe
-  | ($d.mngr_reject_pct[0] // {}) as $m | pct($m.rejected | num; $m.total | num) as $pm
-  | [light($p5; $th.w5; $th.c5), light($pe; $th.wa; $th.ca), light($pm; $th.wr; $th.cr)] as $lights
+  | (($r.con_codigo | num) - ($r.ok_2xx | num) - ($r.negocio_412 | num)) as $rerr | pct($rerr; $rt) as $pe
+  | [light($p5; $th.w5; $th.c5), light($pe; $th.wa; $th.ca)] as $lights
   | (if any($lights[]; . == "🔴") then "🔴" elif any($lights[]; . == "🟡") then "🟡" else "🟢" end) as $overall
-  | ($d.adp_exceptions | map(select(.code == "504"))) as $timeouts
-  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode == "400"))) as $mapping
-  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode != "400"))) as $other_exc
-  | $d.errors as $e
-  | [
+  # per service: adapter totals/errors (summed over channels) + API Gateway p95 matched by lowercase name
+  | ($d.api_by_service | map({key: (.servicio // "" | ascii_downcase), value: .}) | from_entries) as $lat
+  | ($d.adp_by_service | group_by(.servicio // "")
+     | map({servicio: (.[0].servicio // ""), total: (map(.total | num) | add), error: (map(.error | num) | add)})
+     | map(. + {pct: pct(.error; .total), p95: $lat[.servicio | ascii_downcase].p95})) as $svcs
+  | ($svcs | map(select(.error > 0)) | sort_by(-.pct, -.error) | .[0:5]) as $top
+  | ($d.adp_exceptions | map(select(.code == "504")) | sumby(.service // "")) as $timeouts
+  # mapping errors grouped like the Dynatrace tile (without channel); the example comes from the biggest row
+  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode == "400"))
+     | group_by([.direction, .rule, .campo, .adapter, .service])
+     | map(max_by(.total | num) + {total: (map(.total | num) | add)}) | sort_by(-.total)) as $mapping
+  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode != "400"))
+     | sumby([.httpCode, .code, .errorMsg, .service])) as $other_exc
+  | def total_of(xs): [xs | .[].total | num] | add // 0;
+  [
     "📊 Estado diario Nexus \($overall)",
     "🕔 \($d.meta.from) → \($d.meta.to) (hora Colombia)",
     "",
-    "🌐 API Gateway \($lights[0])",
-    "• \($at | fmt) peticiones | 2xx \(pct($a.s2xx | num; $at) | pc)% | 4xx \(pct($a.s4xx | num; $at) | pc)% | 5xx \($p5 | pc)% | p95 \($a.p95 | fmt) ms",
-    "• Más errores: " + ([$d.api_by_api[] | select((.s4xx | num) + (.s5xx | num) > 0)][0:3]
-        | map("\(.API) 5xx \(.s5xx | fmt) / 4xx \(.s4xx | fmt) de \(.total | fmt)") | orNone | join(" · ")),
-    "",
-    "🔌 Adaptadores \($lights[1])",
-    "• \($rt | fmt) respuestas | OK \(pct($r.ok_2xx | num; $rt) | pc)% | 412 negocio \(pct($r.negocio_412 | num; $rt) | pc)% | error \($pe | pc)%",
-    "• Más errores: " + ([$d.adp_by_service[] | select((.error | num) > 0)][0:3]
-        | map("\(.servicio // "-")/\(.canal // "-") \(.error | fmt)") | orNone | join(" · ")),
-    "• Errores puntuales: " + ($d.adp_errors[0:3]
-        | map("\(.codigo) \(.sistema // "-") · \(.errorMensaje // "(sin mensaje)" | cut(50)) · \(.servicio // "-")/\(.canal // "-") (\(.total | fmt))")
-        | orNone | join(" | ")),
-    "• Timeouts 504: \([$timeouts[].total | num] | add // 0 | fmt)" + (if ($timeouts | length) > 0 then " — principales: " +
-        ($timeouts | group_by([.service, .channel]) | map({k: "\(.[0].service // "-")/\(.[0].channel // "-")", n: ([.[].total | num] | add)})
-         | sort_by(-.n) | .[0:3] | map("\(.k) (\(.n | fmt))") | join(" · ")) else "" end),
-    # one row per group, like the Dynatrace table; "ej" = the rule with %1..%3 filled in (its "example")
-    ([ "• Errores de mapeo: \([$mapping[].total | num] | add // 0 | fmt)" ]
-     + ($mapping[0:5] | to_entries | map(.value as $x
-         | "  \(.key + 1). " + (if ($x.rule // "") != ""
-             then "\($x.rule) | \($x.direction // "-") \($x.campo // "-") | \($x.service // "-") · canal \($x.channel // "-") — \($x.total | fmt)\n"
-                  + "     ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1") | gsub("%2"; $x.ex2 // "%2") | gsub("%3"; $x.ex3 // "%3") | cut(120))
-             else "\($x.code) \($x.errorMsg | cut(60)) | \($x.service // "-") · canal \($x.channel // "-") — \($x.total | fmt)" end)))
-     | join("\n")),
-    "• Otros errores técnicos: \([$other_exc[].total | num] | add // 0 | fmt)" + (if ($other_exc | length) > 0 then " — " +
-        ($other_exc[0:3] | map("HTTP \(.httpCode // "-") · \(.code) \(.errorMsg // "(sin mensaje)" | cut(50)) · \(.service // "-")/\(.channel // "-") (\(.total | fmt))")
-         | join(" | ")) else "" end),
-    "• p95 más lento: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
+    "📈 Resumen",
+    "• API Gateway \($lights[0]): \($at | fmt) peticiones, 5xx \($p5 | pc)%, p95 \($a.p95 | fmt) ms",
+    "• Adaptadores \($lights[1]): \($rt | fmt) respuestas",
+    "   - OK (2xx): \(pct($r.ok_2xx | num; $rt) | pc)%",
+    "   - Negocio (412): \(pct($r.negocio_412 | num; $rt) | pc)%",
+    "   - Error: \($pe | pc)% (\($rerr | fmt))",
     "• Hora pico de errores: " + (if $d.meta.peak == "" then "ninguna" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errores)" end),
     "",
-    "📡 Canal (mngr) \($lights[2])",
-    "• Rechazos (M): \($pm | pc)% de \($m.total | fmt) respuestas",
-    "• Principales rechazos: " + ($d.mngr_rejects[0:3]
-        | map("\(.nombreOperacion // "-") · \(.msgRespuesta // "-" | cut(50)) · canal \(.canal // "-") (\(.rejected | fmt))") | orNone | join(" | ")),
-    "• Transacciones con error: \($e.rqids | fmt) rqids en \($e.groups | length) grupos (canal identificado en \($e.with_canal | fmt))"
+    "🔥 Top 5 servicios por % de error"
   ]
-  + ($e.groups[0:5] | to_entries | map("  \(.key + 1). \(.value.msg | if . == "" then "(sin msgRespuesta)" else cut(60) end) | canal \(.value.canal | if . == "" then "?" else . end) | \(.value.op | if . == "" then "-" else . end) — \(.value.count | fmt)"))
+  + (if ($top | length) == 0 then ["• ninguno"] else
+      ($top | to_entries | map(.key as $i | .value as $s
+        | ["\($i + 1). \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"]
+          + ([$d.adp_errors[] | select((.servicio // "") == $s.servicio)]
+             | sumby([.codigo, .sistema, .errorMensaje]) | .[0:2]
+             | map("   - \(.codigo) \(.sistema // "-"): \(.errorMensaje // "(sin mensaje)" | cut(80)) (\(.total | fmt))")))
+       | add) end)
+  + ["", "⏱️ Latencia y error por servicio (p95 en API Gateway)"]
+  + (if ($svcs | length) == 0 then ["• sin datos"] else
+      ($svcs | sort_by(-.total)
+       | map("• \(.servicio | svc): p95 \(if .p95 == null then "-" else "\(.p95 | fmt) ms" end), error \(.pct | pc)% (\(.total | fmt) respuestas)")) end)
+  + ["", "🧩 Errores de mapeo: \(total_of($mapping) | fmt)"]
+  + ($mapping[0:5] | to_entries | map(.key as $i | .value as $x
+      | if ($x.rule // "") != "" then
+          ["\($i + 1). \($x.campo // "-") (\($x.direction // "-")): \($x.total | fmt)",
+           "   - Servicio: \($x.service | svc), adaptador \($x.adapter // "-")",
+           "   - Regla: \($x.rule)",
+           "   - Ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1") | gsub("%2"; $x.ex2 // "%2") | gsub("%3"; $x.ex3 // "%3") | cut(120))]
+        else
+          ["\($i + 1). \($x.code) \($x.errorMsg // "(sin mensaje)" | cut(60)): \($x.total | fmt)",
+           "   - Servicio: \($x.service | svc), adaptador \($x.adapter // "-")"]
+        end) | add // [])
+  + ["", "⏳ Timeouts 504: \(total_of($timeouts) | fmt)"]
+  + ($timeouts[0:3] | map("   - \(.service | svc): \(.total | fmt)"))
+  + ["", "⚙️ Otros errores técnicos: \(total_of($other_exc) | fmt)"]
+  + ($other_exc[0:3] | map("   - HTTP \(.httpCode // "-"), código \(.code // "-"): \(.errorMsg // "(sin mensaje)" | cut(60)) en \(.service | svc) (\(.total | fmt))"))
   + (if $d.meta.truncated == 1 then ["", "⚠️ Algunas consultas llegaron al límite de 10.000 filas; los conteos pueden quedar cortos (bajá CHUNK_HOURS)."] else [] end)
   | .[]' | tr -d '\r' > "$OUT_DIR/report.txt"
 
