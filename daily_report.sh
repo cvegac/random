@@ -273,9 +273,11 @@ add_query adp_errors adapter "$ADP_RESP
 # The field is p3 when the rule says "para: %3", otherwise p1. ex1..ex3 (latest p1..p3 of the group)
 # fill the rule into an example, like the Dynatrace "example" column; the user wants it in the chat text
 # even though p1..p3 can be customer values. errorMsg stops at the first "." (what follows is raw backend
-# data). code 504 rows are the timeouts, split out when rendering.
+# data). Rendering splits the rows: Exception 504 = timeouts, HttpCode 400 = mapping, anything else = other
+# technical errors (e.g. Exception 1111 "conexion rehusada" under HttpCode 503, which is not a mapping error).
 add_query adp_exceptions adapter 'fields @message
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
+| parse @message /HttpCode::\s*(?<httpCode>\d+)/
 | parse @message /Exception:\s*(?<code>\d+)\s*::\s*(?<errorMsg>[^.]*[^.\s])/
 | parse @message /Exception:\s*\d+\s*::[^.]*\.(?<direction>[A-Za-z]+):\s*(?<rule>.*?)\. 1=(?<params>.*?)\s*::HEAD::/
 | parse params /^(?<p1>.*?)(?:, 2=|$)/
@@ -286,7 +288,7 @@ add_query adp_exceptions adapter 'fields @message
 | parse @message /X-Name=(?<channel>[^,\]]+)/
 | fields if(isPresent(ruleUsesP3), p3, p1) as campo
 | stats count(*) as total, latest(p1) as ex1, latest(p2) as ex2, latest(p3) as ex3
-    by code, errorMsg, direction, rule, campo, service, channel
+    by httpCode, code, errorMsg, direction, rule, campo, service, channel
 | sort total desc
 | limit 10000'
 
@@ -462,7 +464,8 @@ peak_label=""
   | [light($p5; $th.w5; $th.c5), light($pe; $th.wa; $th.ca), light($pm; $th.wr; $th.cr)] as $lights
   | (if any($lights[]; . == "🔴") then "🔴" elif any($lights[]; . == "🟡") then "🟡" else "🟢" end) as $overall
   | ($d.adp_exceptions | map(select(.code == "504"))) as $timeouts
-  | ($d.adp_exceptions | map(select(.code != "504"))) as $mapping
+  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode == "400"))) as $mapping
+  | ($d.adp_exceptions | map(select(.code != "504" and .httpCode != "400"))) as $other_exc
   | $d.errors as $e
   | [
     "📊 Estado diario Nexus \($overall)",
@@ -491,6 +494,9 @@ peak_label=""
                   + "     ej: " + ($x.rule | gsub("%1"; $x.ex1 // "%1") | gsub("%2"; $x.ex2 // "%2") | gsub("%3"; $x.ex3 // "%3") | cut(120))
              else "\($x.code) \($x.errorMsg | cut(60)) | \($x.service // "-") · canal \($x.channel // "-") — \($x.total | fmt)" end)))
      | join("\n")),
+    "• Otros errores técnicos: \([$other_exc[].total | num] | add // 0 | fmt)" + (if ($other_exc | length) > 0 then " — " +
+        ($other_exc[0:3] | map("HTTP \(.httpCode // "-") · \(.code) \(.errorMsg // "(sin mensaje)" | cut(50)) · \(.service // "-")/\(.channel // "-") (\(.total | fmt))")
+         | join(" | ")) else "" end),
     "• p95 más lento: " + ($d.adp_latency[0:3] | map("\(.Adaptador) \(.p95 | fmt) ms") | orNone | join(" · ")),
     "• Hora pico de errores: " + (if $d.meta.peak == "" then "ninguna" else "\($d.meta.peak) (\($d.adp_peak[0].errores | fmt) errores)" end),
     "",
