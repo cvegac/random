@@ -19,7 +19,8 @@
 #                    CHUNK_HOURS  slice size for the per-rqid error query, keeps each slice under the
 #                                 10,000-row Insights limit (default 4)
 #                    ERROR_PATTERN1, ERROR_PATTERN2   mngr error markers (default Error / ERROR)
-#                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (1/5),
+#                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (5/10,
+#                                                 also the per-service lights),
 #                                                 WARN_REJECT/CRIT_REJECT (5/10)
 #                    TOP_MIN_RESPONSES  services below this volume only fill the "top 5 by error %"
 #                                 when not enough services reach it (default 50)
@@ -150,7 +151,7 @@ CHUNK_HOURS="${CHUNK_HOURS:-4}"
 ERROR_PATTERN1="${ERROR_PATTERN1:-Error}"
 ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
 WARN_5XX="${WARN_5XX:-1}"         CRIT_5XX="${CRIT_5XX:-5}"
-WARN_ADP_ERR="${WARN_ADP_ERR:-1}" CRIT_ADP_ERR="${CRIT_ADP_ERR:-5}"
+WARN_ADP_ERR="${WARN_ADP_ERR:-5}" CRIT_ADP_ERR="${CRIT_ADP_ERR:-10}"
 WARN_REJECT="${WARN_REJECT:-5}"   CRIT_REJECT="${CRIT_REJECT:-10}"
 TOP_MIN_RESPONSES="${TOP_MIN_RESPONSES:-50}"
 CACHE="${CACHE:-1}"
@@ -466,6 +467,10 @@ peak_label=""
     def pct(a; b): if b > 0 then (a * 1000 / b | round) / 10 else 0 end;
     def pc: tostring | sub("\\."; ",");                                 # 97.2 -> "97,2" (es-CO)
     def light(v; w; c): if v >= c then "🔴" elif v >= w then "🟡" else "🟢" end;
+    # every light says which value and which threshold set it, e.g. "🔴 error 12,3% ≥ 10%"
+    def why(v; w; c): if v >= c then "≥ \(c | pc)%" elif v >= w then "≥ \(w | pc)%" else "< \(w | pc)%" end;
+    def lit(what; v; w; c): "\(light(v; w; c)) \(what) \(v | pc)% \(why(v; w; c))";
+    def band(w; c): "🟢 menos de \(w | pc)%, 🟡 de \(w | pc)% a \(c | pc)%, 🔴 \(c | pc)% o más";
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
     def svc: if (. // "") == "" then "(sin servicio)" else . end;
     def sumby(f): group_by(f) | map(.[0] + {total: (map(.total | num) | add)}) | sort_by(-.total);
@@ -475,8 +480,12 @@ peak_label=""
   | pct($a.s5xx | num; $at) as $p5
   | ($d.adp_kpi[0] // {}) as $r | ($r.total | num) as $rt
   | (($r.con_codigo | num) - ($r.ok_2xx | num) - ($r.negocio_412 | num)) as $rerr | pct($rerr; $rt) as $pe
-  | [light($p5; $th.w5; $th.c5), light($pe; $th.wa; $th.ca)] as $lights
-  | (if any($lights[]; . == "🔴") then "🔴" elif any($lights[]; . == "🟡") then "🟡" else "🟢" end) as $overall
+  | [{name: "API Gateway", what: "5xx", v: $p5, w: $th.w5, c: $th.c5},
+     {name: "Adaptadores", what: "error", v: $pe, w: $th.wa, c: $th.ca}]
+    | map(. + {light: light(.v; .w; .c)}) as $checks
+  | ([$checks[].light] | if any(. == "🔴") then "🔴" elif any(. == "🟡") then "🟡" else "🟢" end) as $overall
+  | ($checks | map(select(.light != "🟢") | "\(.name) con \(.what) \(.v | pc)% (\(why(.v; .w; .c)))")
+     | if length == 0 then "todo bajo los umbrales" else join(", ") end) as $reason
   # per service: adapter totals/errors (summed over channels) + API Gateway p95 matched by lowercase name
   | ($d.api_by_service | map({key: (.servicio // "" | ascii_downcase), value: .}) | from_entries) as $lat
   | ($d.adp_by_service | group_by(.servicio // "")
@@ -496,11 +505,19 @@ peak_label=""
   | def total_of(xs): [xs | .[].total | num] | add // 0;
   [
     "📊 Estado diario Nexus \($overall)",
+    "Motivo: \($reason)",
     "🕔 \($d.meta.from) → \($d.meta.to) (hora Colombia)",
     "",
+    "🚦 Umbrales",
+    "   - Error de adaptadores y de cada servicio: \(band($th.wa; $th.ca))",
+    "   - 5xx en API Gateway: \(band($th.w5; $th.c5))",
+    "",
     "📈 Resumen",
-    "• API Gateway \($lights[0]): \($at | fmt) peticiones, 5xx \($p5 | pc)%, p95 \($a.p95 | fmt) ms",
-    "• Adaptadores \($lights[1]): \($rt | fmt) respuestas",
+    "• API Gateway: \(lit("5xx"; $p5; $th.w5; $th.c5))",
+    "   - Peticiones: \($at | fmt)",
+    "   - p95: \($a.p95 | fmt) ms",
+    "• Adaptadores: \(lit("error"; $pe; $th.wa; $th.ca))",
+    "   - Respuestas: \($rt | fmt)",
     "   - OK (2xx): \(pct($r.ok_2xx | num; $rt) | pc)%",
     "   - Negocio (412): \(pct($r.negocio_412 | num; $rt) | pc)%",
     "   - Error: \($pe | pc)% (\($rerr | fmt))",
@@ -510,7 +527,7 @@ peak_label=""
   ]
   + (if ($top | length) == 0 then ["• ninguno"] else
       ($top | to_entries | map(.key as $i | .value as $s
-        | ["\($i + 1). \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"
+        | ["\($i + 1). \(light($s.pct; $th.wa; $th.ca)) \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"
            + (if $s.low then ", poco volumen" else "" end)]
           + ([$d.adp_errors[] | select((.servicio // "") == $s.servicio)]
              | sumby([.codigo, .sistema, .errorMensaje]) | .[0:2]
@@ -519,7 +536,7 @@ peak_label=""
   + ["", "⏱️ Latencia y error por servicio (p95 en API Gateway)"]
   + (if ($svcs | length) == 0 then ["• sin datos"] else
       ($svcs | sort_by(-.total)
-       | map("• \(.servicio | svc): p95 \(if .p95 == null then "-" else "\(.p95 | fmt) ms" end), error \(.pct | pc)% (\(.total | fmt) respuestas)")) end)
+       | map("• \(light(.pct; $th.wa; $th.ca)) \(.servicio | svc): error \(.pct | pc)%, p95 \(if .p95 == null then "-" else "\(.p95 | fmt) ms" end) (\(.total | fmt) respuestas)")) end)
   + ["", "🧩 Errores de mapeo: \(total_of($mapping) | fmt)"]
   + ($mapping[0:5] | to_entries | map(.key as $i | .value as $x
       | if ($x.rule // "") != "" then
