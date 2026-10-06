@@ -14,7 +14,8 @@
 #   http_code  = ::HTTPCODE:: of the adapter ::AUDIT::RESP:: line
 #   adapter_error = "<system> <code>: <message>" from the RESP body error, and/or "HttpCode <n>: <exception>"
 #                from GenericExceptionMapper, cut at the first "." (customer data follows ".RESPONSE:")
-#   mngr_error = text of the mngr [ERROR ...][ text ] line(s), first 200 characters
+#   mngr_error = text after [ERROR <emoji>] in the mngr line(s), first 200 characters; e.g.
+#                [rquid][canal][/ESBService/<Service>:<version>][backend][ERROR ❗] Error en llamada al adapter ...
 #   adapter_audit = full ::AUDIT::REQ:: / ::AUDIT::RESP:: records of the adapter (REST to the backend), in
 #                time order, joined with " || ". Carries customer data and can be huge (Excel cuts a cell at
 #                32,767 chars).
@@ -374,7 +375,7 @@ while IFS=$'\t' read -r s e regex; do
 | parse @message /\"error\":\{[^}]*\"message\":\"(?<errMsg>[^\"]*)\"/
 | parse @message /\"error\":\{[^}]*\"system\":\"(?<errSystem>[^\"]*)\"/
 | parse @message /HttpCode::\s*(?<mapCode>\d+)::Exception:\s*(?<mapExc>[^.]*)/
-| parse @message /\[(?<errRqid>[a-f0-9\-]{36})\]\[ERROR[^\]]*\]\[\s*(?<mngrErr>[^\]]*)\]/
+| parse @message /\[(?<errRqid>[a-f0-9\-]{36})\].*\[ERROR[^\]]*\]\s*(?<mngrErr>[\s\S]*)/
 | parse @message /(?<adpAudit>::AUDIT::.*)/${MSG_TIME}
 | fields coalesce(mngrRqid, adpRqid, errRqid) as trx
 | filter isPresent(trx)
@@ -432,7 +433,7 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" --arg
            | "\(.errSystem // "?") \(.errCode // "?"): \(.errMsg // "")"]
           + [$rows[] | select(.mapExc != null) | "HttpCode \(.mapCode): \(.mapExc | sub("\\s+$"; ""))"]
           | unique | join(" | ")),
-         ([$rows[] | .mngrErr // empty | sub("\\s+$"; "")] | unique | join(" | ") | .[0:200]),
+         ([$rows[] | .mngrErr // empty | gsub("\\s+"; " ") | sub(" $"; "")] | unique | join(" | ") | .[0:200]),
          .step_count,
          ([$rows[] | select(.stepMs != null)]
           | sort_by((.msgTs // "0" | tonumber), ($pipeline[.Paso] // 99))
