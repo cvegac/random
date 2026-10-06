@@ -9,14 +9,17 @@
 # Step 1 aggregates per transaction inside CloudWatch and returns only the slow ones; step 2 fetches the
 # steps, service and channel (adapter X-Name) of just those, in batches of rquids.
 #
-# Usage:  ./slow_transactions.sh "2026-10-06 08:00:00" "2026-10-06 09:00:00"
-#         (times are Colombia local time, UTC-5)
-# Output: results/slow_<start>__<end>/slow_transactions.csv, slowest first
+# Usage:  ./slow_transactions.sh [-c cluster] [-s service] [-t ms] "<start>" "<end>"
+#           -c  only this ws cluster's log groups, e.g. productsws (default: all clusters)
+#           -s  only transactions of this ESB service, e.g. ConsultaProductos (exact name, case-sensitive)
+#           -t  minimum total time in ms (default 1000)
+#           start/end: "YYYY-MM-DD HH:MM:SS", Colombia local time (UTC-5)
+# Example: ./slow_transactions.sh -c productsws -s ConsultaProductos "2026-10-06 08:00:00" "2026-10-06 09:00:00"
+# Output: results/slow_<start>__<end>[_<cluster>][_<service>]/slow_transactions.csv, slowest first
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, DASHBOARD_JSON, DEBUG (0/1/2),
-#                    THRESHOLD_MS  minimum total time to list a transaction (default 1000)
-#                    CLUSTER       only this ws cluster's log groups, e.g. productsws (default: all)
+#                    THRESHOLD_MS / CLUSTER / SERVICE  defaults for -t / -c / -s
 #                    BATCH_SIZE    rquids per step-2 query (default 100; query length limit 10,000 chars)
 set -euo pipefail
 
@@ -26,10 +29,27 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/cw.sh"
 OUT_BASE="${OUT_BASE:-results}"
 THRESHOLD_MS="${THRESHOLD_MS:-1000}"
 CLUSTER="${CLUSTER:-}"
+SERVICE="${SERVICE:-}"
 BATCH_SIZE="${BATCH_SIZE:-100}"
 
-[ $# -eq 2 ] || die "usage: $0 \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\"  (Colombia time)"
-[[ "$THRESHOLD_MS" =~ ^[0-9]+$ ]] || die "THRESHOLD_MS must be a whole number of milliseconds"
+USAGE="usage: $0 [-c cluster] [-s service] [-t ms] \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\"  (Colombia time)"
+while getopts ":c:s:t:h" opt; do
+  case "$opt" in
+    c) CLUSTER=$OPTARG ;;
+    s) SERVICE=$OPTARG ;;
+    t) THRESHOLD_MS=$OPTARG ;;
+    h) echo "$USAGE"; exit 0 ;;
+    :) die "-$OPTARG needs a value. $USAGE" ;;
+    *) die "unknown option -$OPTARG. $USAGE" ;;
+  esac
+done
+shift $((OPTIND - 1))
+[ $# -eq 2 ] || die "$USAGE"
+[[ "$THRESHOLD_MS" =~ ^[0-9]+$ ]] || die "-t must be a whole number of milliseconds"
+# both end up inside a query regex / a path: plain names only
+[[ -z "$CLUSTER" || "$CLUSTER" =~ ^[a-z-]+$ ]] || die "-c must be a cluster name like productsws or credit-cardsws"
+[[ -z "$SERVICE" || "$SERVICE" =~ ^[A-Za-z0-9_]+$ ]] || die "-s must be a service name like ConsultaProductos"
+[ -z "$SERVICE" ] || [ -n "$CLUSTER" ] || log "Tip: add -c <cluster> with -s, or every cluster is scanned for one service"
 cw_require_tools
 
 in_cluster() { if [ -n "$CLUSTER" ]; then grep "^/aws/ecs/srv/${CLUSTER}-" || true; else cat; fi; }
@@ -44,13 +64,13 @@ START=$(to_epoch "$1")
 END=$(to_epoch "$2")
 [ "$START" -lt "$END" ] || die "start time must be before end time"
 
-OUT_DIR="${OUT_BASE}/slow_$(to_label "$1")__$(to_label "$2")${CLUSTER:+_$CLUSTER}"
+OUT_DIR="${OUT_BASE}/slow_$(to_label "$1")__$(to_label "$2")${CLUSTER:+_$CLUSTER}${SERVICE:+_$SERVICE}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/slow_transactions.csv"
 HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,step_count,steps"
 
-debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} out=$OUT_DIR"
+debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
 cw_debug_env
 
 # mngr ESB step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>]...[paso][tiempo unidad]
@@ -58,29 +78,40 @@ STEP_RE='/\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\
 
 # ---------------------------------------------------------------- step 1: slow transactions (aggregated)
 
-log "Step 1: transactions over ${THRESHOLD_MS} ms in ${#MNGR_GROUPS[@]} mngr + ${#ADAPTER_GROUPS[@]} adapter log groups"
+log "Step 1: transactions over ${THRESHOLD_MS} ms${SERVICE:+ of $SERVICE} in ${#MNGR_GROUPS[@]} mngr + ${#ADAPTER_GROUPS[@]} adapter log groups"
 # Only numeric aggregates here (sum/min/max), which ignore lines without the field. A REQ/RESP time is
 # replaced by a sentinel on every other line so min/max pick only the adapter's own AUDIT lines.
+# The service filter can't drop lines (adapter AUDIT lines don't always name the service): it counts the
+# trx's mngr steps of that service and keeps the trx if there is at least one.
+SVC_PARSE="" SVC_FIELD="" SVC_STAT="" SVC_FILTER=""
+if [ -n "$SERVICE" ]; then
+  SVC_PARSE="
+| parse @message /(?<svcMark>\/ESBService\/${SERVICE}[:\]])/"
+  SVC_FIELD=",
+         if(isPresent(svcMark), 1, 0) as isSvc"
+  SVC_STAT=", sum(isSvc) as svcLines"
+  SVC_FILTER=" and svcLines > 0"
+fi
 q1="fields @timestamp, @message
 | filter @message like \"[/\" or @message like \"::AUDIT::REQ::\" or @message like \"::AUDIT::RESP::\"
 | parse @message ${STEP_RE}
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
 | parse @message /(?<reqMark>::AUDIT::REQ::)/
-| parse @message /(?<respMark>::AUDIT::RESP::)/
+| parse @message /(?<respMark>::AUDIT::RESP::)/${SVC_PARSE}
 | fields coalesce(mngrRqid, adpRqid) as trx,
          if(isPresent(reqMark), toMillis(@timestamp), 99999999999999) as reqTs,
          if(isPresent(respMark), toMillis(@timestamp), 0) as respTs,
-         if(isPresent(stepMs), 1, 0) as isStep
+         if(isPresent(stepMs), 1, 0) as isStep${SVC_FIELD}
 | filter isPresent(trx)
-| stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp by trx
-| filter stepCount > 0 and totalMs > ${THRESHOLD_MS}
+| stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp${SVC_STAT} by trx
+| filter stepCount > 0 and totalMs > ${THRESHOLD_MS}${SVC_FILTER}
 | sort totalMs desc
 | limit 10000"
 
 run_query "$q1" "$START" "$END" "${ALL_GROUPS[@]}" > "$TMP/1_slow.json"
 n1=$(jq '.results | length' < "$TMP/1_slow.json" | tr -d '\r')
-[ "$n1" -lt 10000 ] || log "  WARNING: step 1 hit 10,000 rows (truncated). Use a shorter window or CLUSTER."
+[ "$n1" -lt 10000 ] || log "  WARNING: step 1 hit 10,000 rows (truncated). Use a shorter window, -c or -s."
 
 # trx<TAB>total<TAB>steps<TAB>adapter_ms ("" when the transaction has no adapter REQ+RESP pair)
 jq -r "$FLAT"' | (.adpReq | tonumber) as $req | (.adpResp | tonumber) as $resp
