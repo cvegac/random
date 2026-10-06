@@ -23,6 +23,20 @@
 # Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x),
 #                    THRESHOLD_MS / CLUSTER / SERVICE  defaults for -t / -c / -s
 #                    BATCH_SIZE    rquids per step-2 query (default 100; query length limit 10,000 chars)
+#                    CHUNK_MINUTES step-1 window slice, the slices run in parallel (default 60)
+#                    MAX_PARALLEL  queries running at once (default 10; the account quota is shared with
+#                                  everyone else, LimitExceeded is retried)
+#                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .slow_transactions_cache),
+#                    CACHE_DAYS    cached results older than this are deleted at startup (default 7)
+#
+# Cache: every query result is stored keyed by query text + log groups + exact range, so re-running the
+# same command (e.g. after a failure halfway) only queries what is missing; another -c/-s/-t is a new key. Ranges ending in the
+# last 15 minutes are never cached (logs may still be arriving). A cached result is the snapshot taken
+# when it was fetched.
+#
+# Speed: step 1 runs one query per CHUNK_MINUTES slice in parallel; step 2 sorts the slow transactions by
+# time and each batch only scans its own transactions' time range (+-1 min), also in parallel. A slow
+# transaction cut exactly at a slice boundary can be missed if neither half reaches the threshold.
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
@@ -127,18 +141,68 @@ cw_collect() {
   printf '%s' "$res"
 }
 
-# run_query "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the results JSON
-run_query() {
-  local qid
-  qid=$(cw_submit "$@") || die "start-query failed"
-  cw_collect "$qid"
+# cache_file <query> <start> <end>  -> where that query's result for that exact range is cached. The key
+# covers the query text (threshold, service...) and the log groups (cluster), so nothing stale is served.
+cache_file() {
+  local key
+  key=$({ printf '%s\n' "$1"; printf '%s\n' "${ALL_GROUPS[@]}"; } | cksum | cut -d' ' -f1)
+  printf '%s/%s_%s_%s.json' "$CACHE_DIR" "$key" "$2" "$3"
 }
+
+# run_parallel <prefix>  -> runs the queries queued in PQ_QUERY/PQ_START/PQ_END against ALL_GROUPS,
+# MAX_PARALLEL at a time (submit a wave, then collect it), into $TMP/<prefix>_<i>.json. Clears the queue.
+# A cached result is copied instead of querying; a range ending in the last CACHE_FRESH_MIN minutes is never
+# cached because CloudWatch may still be ingesting it.
+run_parallel() {
+  local prefix="$1" n=${#PQ_QUERY[@]} i j hits=0 cf
+  local -a qids=() cfs=()
+  for ((i = 0; i < n; i += MAX_PARALLEL)); do
+    for ((j = i; j < n && j < i + MAX_PARALLEL; j++)); do
+      cfs[j]=""
+      if [ "$CACHE" = 1 ] && [ "${PQ_END[j]}" -le $(( $(date +%s) - CACHE_FRESH_MIN * 60 )) ]; then
+        cfs[j]=$(cache_file "${PQ_QUERY[j]}" "${PQ_START[j]}" "${PQ_END[j]}")
+        if [ -s "${cfs[j]}" ]; then
+          cp "${cfs[j]}" "$TMP/${prefix}_$j.json"; qids[j]=""; hits=$((hits + 1)); continue
+        fi
+      fi
+      qids[j]=$(cw_submit "${PQ_QUERY[j]}" "${PQ_START[j]}" "${PQ_END[j]}" "${ALL_GROUPS[@]}") || die "start-query failed"
+    done
+    for ((j = i; j < n && j < i + MAX_PARALLEL; j++)); do
+      if [ -n "${qids[j]}" ]; then
+        cw_collect "${qids[j]}" > "$TMP/${prefix}_$j.json"
+        cf=${cfs[j]}   # write-then-rename: an interrupted copy never leaves a half file behind
+        [ -z "$cf" ] || { cp "$TMP/${prefix}_$j.json" "$cf.part" && mv "$cf.part" "$cf"; }
+      fi
+      [ "$(jq '.results | length' < "$TMP/${prefix}_$j.json" | tr -d '\r')" -lt 10000 ] \
+        || log "  WARNING: $prefix query $((j + 1)) hit 10,000 rows (truncated)"
+    done
+    log "  $prefix: $(( j < n ? j : n )) of $n queries done"
+  done
+  [ "$hits" -eq 0 ] || log "  $prefix: $hits of $n from the cache"
+  PQ_QUERY=() PQ_START=() PQ_END=()
+}
+PQ_QUERY=() PQ_START=() PQ_END=()
 
 OUT_BASE="${OUT_BASE:-results}"
 THRESHOLD_MS="${THRESHOLD_MS:-1000}"
 CLUSTER="${CLUSTER:-}"
 SERVICE="${SERVICE:-}"
 BATCH_SIZE="${BATCH_SIZE:-100}"
+CHUNK_MINUTES="${CHUNK_MINUTES:-60}"
+MAX_PARALLEL="${MAX_PARALLEL:-10}"
+[[ "$CHUNK_MINUTES" =~ ^[1-9][0-9]*$ && "$MAX_PARALLEL" =~ ^[1-9][0-9]*$ && "$BATCH_SIZE" =~ ^[1-9][0-9]*$ ]] \
+  || die "CHUNK_MINUTES, MAX_PARALLEL and BATCH_SIZE must be positive whole numbers"
+CACHE="${CACHE:-1}"
+CACHE_DIR="${CACHE_DIR:-.slow_transactions_cache}"
+CACHE_DAYS="${CACHE_DAYS:-7}"
+CACHE_FRESH_MIN=15
+if [ "$CACHE" = 1 ]; then   # drop cached results older than CACHE_DAYS
+  mkdir -p "$CACHE_DIR"
+  for f in "$CACHE_DIR"/*.json; do
+    [ -e "$f" ] || continue
+    [ $(( $(date +%s) - $(date -r "$f" +%s) )) -lt $((CACHE_DAYS * 86400)) ] || rm -f "$f"
+  done
+fi
 
 USAGE="usage: $0 [-c cluster] [-s service] [-t ms] \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\"  (Colombia time)"
 while getopts ":c:s:t:h" opt; do
@@ -215,37 +279,55 @@ q1="fields @timestamp, @message
 | parse @message /(?<reqMark>::AUDIT::REQ::)/
 | parse @message /(?<respMark>::AUDIT::RESP::)/${SVC_PARSE}
 | fields coalesce(mngrRqid, adpRqid) as trx,
+         toMillis(@timestamp) as tsMs,
          if(isPresent(reqMark), toMillis(@timestamp), 99999999999999) as reqTs,
          if(isPresent(respMark), toMillis(@timestamp), 0) as respTs,
          if(isPresent(stepMs), 1, 0) as isStep${SVC_FIELD}
 | filter isPresent(trx)
-| stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp${SVC_STAT} by trx
+| stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp,
+    min(tsMs) as firstTs, max(tsMs) as lastTs${SVC_STAT} by trx
 | filter stepCount > 0 and totalMs > ${THRESHOLD_MS}${SVC_FILTER}
 | sort totalMs desc
 | limit 10000"
 
-run_query "$q1" "$START" "$END" "${ALL_GROUPS[@]}" > "$TMP/1_slow.json"
-n1=$(jq '.results | length' < "$TMP/1_slow.json" | tr -d '\r')
-[ "$n1" -lt 10000 ] || log "  WARNING: step 1 hit 10,000 rows (truncated). Use a shorter window, -c or -s."
+chunk=$((CHUNK_MINUTES * 60))
+for ((s = START; s < END; s += chunk)); do
+  e=$((s + chunk - 1)); [ $((s + chunk)) -lt "$END" ] || e=$END
+  PQ_QUERY+=("$q1") PQ_START+=("$s") PQ_END+=("$e")
+done
+log "  ${#PQ_QUERY[@]} slice(s) of ${CHUNK_MINUTES} min, up to ${MAX_PARALLEL} at a time"
+n_slices=${#PQ_QUERY[@]}
+run_parallel 1_slow
 
-# trx<TAB>total<TAB>steps<TAB>adapter_ms ("" when the transaction has no adapter REQ+RESP pair)
-jq -r "$FLAT"' | (.adpReq | tonumber) as $req | (.adpResp | tonumber) as $resp
-       | [.trx, .totalMs, .stepCount, (if $resp > 0 and $req < 99999999999999 then $resp - $req else "" end)] | @tsv' \
-  < "$TMP/1_slow.json" | tr -d '\r' > "$TMP/1_slow.tsv"
+# Merge the slices: a transaction cut at a slice boundary shows up in both, so its parts are combined.
+# trx<TAB>total<TAB>steps<TAB>adapter_ms<TAB>firstTs<TAB>lastTs (adapter_ms "" without a REQ+RESP pair)
+for ((j = 0; j < n_slices; j++)); do jq -c "$FLAT" < "$TMP/1_slow_$j.json"; done | tr -d '\r' | jq -s -r '
+  group_by(.trx) | map({trx: .[0].trx,
+      total: (map(.totalMs | tonumber) | add), steps: (map(.stepCount | tonumber) | add),
+      req: (map(.adpReq | tonumber) | min), resp: (map(.adpResp | tonumber) | max),
+      first: (map(.firstTs | tonumber) | min), last: (map(.lastTs | tonumber) | max)})
+  | .[] | [.trx, .total, .steps, (if .resp > 0 and .req < 99999999999999 then .resp - .req else "" end),
+           .first, .last] | @tsv' > "$TMP/1_slow.tsv"
 
+n1=$(awk 'END{print NR}' "$TMP/1_slow.tsv")
 log "  -> $n1 transaction(s) over ${THRESHOLD_MS} ms"
 [ "$n1" -gt 0 ] || { echo "$HEADER" > "$OUT_CSV"; log "Nothing slow in the window. Done -> $OUT_CSV"; exit 0; }
 
 # ---------------------------------------------------------------- step 2: steps, service and channel
 
 log "Step 2: steps, service and channel of those transactions"
-: > "$TMP/2_details.ndjson"
-mapfile -t trxs < <(cut -f1 "$TMP/1_slow.tsv")
+# Batches of transactions close in time; each one scans only [first line - 60 s, last line + 60 s] of its
+# own transactions instead of the whole window. Lines: <start epoch>\t<end epoch>\t<trx|trx|...>
+jq -R -s -r --argjson n "$BATCH_SIZE" --argjson ws "$START" --argjson we "$END" '
+  split("\n") | map(select(length > 0) | split("\t") | {trx: .[0], first: (.[4] | tonumber), last: (.[5] | tonumber)})
+  | sort_by(.first) | [range(0; length; $n) as $i | .[$i:$i + $n]] | .[]
+  | ([(map(.first) | min) / 1000 | floor - 60, $ws] | max) as $s
+  | ([(map(.last) | max) / 1000 | ceil + 60, $we] | min) as $e
+  | [(if $s < $e then $s else $ws end), (if $s < $e then $e else $we end), (map(.trx) | join("|"))]
+  | @tsv' < "$TMP/1_slow.tsv" | tr -d '\r' > "$TMP/2_batches.tsv"
 
-for ((i = 0; i < ${#trxs[@]}; i += BATCH_SIZE)); do
-  slice=("${trxs[@]:i:BATCH_SIZE}")
-  regex=$(IFS='|'; printf '%s' "${slice[*]}")
-  q2="fields @timestamp, @message
+while IFS=$'\t' read -r s e regex; do
+  PQ_QUERY+=("fields @timestamp, @message
 | filter @message like /${regex}/ and (@message like \"[/\" or @message like \"X-Name=\")
 | parse @message ${STEP_RE}
 | parse Tiempo /^(?<stepMs>[\d.]+)/
@@ -255,15 +337,13 @@ for ((i = 0; i < ${#trxs[@]}; i += BATCH_SIZE)); do
 | filter isPresent(trx)
 | display @timestamp, trx, Paso, stepMs, servicio, xname
 | sort @timestamp asc
-| limit 10000"
-
-  run_query "$q2" "$START" "$END" "${ALL_GROUPS[@]}" > "$TMP/2_batch.json"
-  jq -c "$FLAT" < "$TMP/2_batch.json" | tr -d '\r' >> "$TMP/2_details.ndjson"
-
-  n=$(jq '.results | length' < "$TMP/2_batch.json" | tr -d '\r')
-  log "  batch $((i / BATCH_SIZE + 1)): ${#slice[@]} transactions -> $n detail rows"
-  [ "$n" -lt 10000 ] || log "  WARNING: batch hit 10,000 rows (truncated). Lower BATCH_SIZE."
-done
+| limit 10000")
+  PQ_START+=("$s") PQ_END+=("$e")
+done < "$TMP/2_batches.tsv"
+log "  ${#PQ_QUERY[@]} batch(es) of up to ${BATCH_SIZE} transactions, up to ${MAX_PARALLEL} at a time"
+n_batches=${#PQ_QUERY[@]}
+run_parallel 2_batch
+for ((j = 0; j < n_batches; j++)); do jq -c "$FLAT" < "$TMP/2_batch_$j.json"; done | tr -d '\r' > "$TMP/2_details.ndjson"
 
 # ---------------------------------------------------------------- step 3: CSV
 
