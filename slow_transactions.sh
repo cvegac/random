@@ -384,6 +384,12 @@ jq -s '.' < "$TMP/2_details.ndjson" > "$TMP/details.json"
 
 cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
   def ms: . * 100 | round / 100;
+  # mngr lines only have millisecond precision and several steps share the same millisecond, so ties are
+  # broken by the ESB pipeline order (same as the columns of query_nexus_traces.sh); unknown steps go last
+  (["ValidateServiceInformation", "SignatureValidationStep", "BodyManipulatorStep", "XsdValidationStep",
+    "DataBlockExtractorStep", "XmlToJsonConverterStep", "BackendHttpAdapter", "ResponseSigningStep",
+    "ResponseBuilderStep"] | to_entries | map({(.value): .key}) | add) as $pipeline
+  |
   (.[1] | group_by(.trx) | map({key: .[0].trx, value: .}) | from_entries) as $detail
   | .[0]
   # without mngr steps (e.g. an adapter timeout) the mngr total is unknown: total/proxy stay empty and the
@@ -400,7 +406,9 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
          (if .adapter == null then "" else .adapter end),
          (if .late == null then "" else .late end),
          .step_count,
-         ([$rows[] | select(.stepMs != null) | "\(.Paso): \(.stepMs) ms"] | join("; ")) ])
+         ([$rows[] | select(.stepMs != null)]
+          | sort_by((.msgTs // "0" | tonumber), ($pipeline[.Paso] // 99))
+          | map("\(.Paso): \(.stepMs) ms") | join("; ")) ])
   | @csv' | tr -d '\r' > "$OUT_CSV"
 
 log "Done -> $OUT_CSV ($(($(awk 'END{print NR}' "$OUT_CSV") - 1)) transaction(s))"
