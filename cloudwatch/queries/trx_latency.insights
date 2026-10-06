@@ -1,0 +1,38 @@
+# CloudWatch Logs Insights version of dynatrace/queries/trx_latency.dql.
+# Select the cluster's -mngr AND -adapter log groups (e.g. productsws-mngr + productsws-stratus-adapter).
+# Insights can't aggregate a list of strings per row, so the steps column is split into query B.
+#   totalMs   = sum of the mngr ESB step times
+#   adapterMs = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid)
+#   proxyMs   = totalMs - adapterMs (time spent in the mngr itself; negative = no step wraps the adapter call)
+# Only transactions that have both mngr steps and an adapter call are listed.
+
+# ---------------------------------------------------------------- A: one row per transaction
+fields @timestamp, @message
+| filter @message like "[/" or @message like "::AUDIT::REQ::" or @message like "::AUDIT::RESP::"
+| parse @message /\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/
+| parse Tiempo /^(?<stepMs>[\d.]+)/
+| parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
+| parse @message /X-Name=(?<canal>[^,\]]+)/
+| parse @message /(?<reqMark>::AUDIT::REQ::)/
+| parse @message /(?<respMark>::AUDIT::RESP::)/
+| fields coalesce(mngrRqid, adpRqid) as trx,
+         if(isPresent(reqMark), toMillis(@timestamp), 99999999999999) as reqTs,
+         if(isPresent(respMark), toMillis(@timestamp), 0) as respTs,
+         if(isPresent(stepMs), 1, 0) as isStep
+| filter isPresent(trx)
+| stats sum(stepMs) as totalMs, sum(isStep) as steps, min(reqTs) as adpReq, max(respTs) as adpResp,
+    sortsFirst(servicio) as service, sortsFirst(canal) as channel by trx
+| filter steps > 0 and adpResp > 0 and adpReq < 99999999999999
+| display trx, service, channel, totalMs, totalMs - (adpResp - adpReq) as proxyMs, adpResp - adpReq as adapterMs, steps
+| sort totalMs desc
+| limit 200
+
+# ---------------------------------------------------------------- B: steps of one transaction
+# Replace <TRX> with a trx from query A; same log groups selected.
+fields @timestamp, @message
+| filter @message like "<TRX>"
+| parse @message /\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/
+| parse Tiempo /^(?<stepMs>[\d.]+)/
+| filter isPresent(stepMs)
+| display @timestamp, Paso, stepMs, servicio
+| sort @timestamp asc

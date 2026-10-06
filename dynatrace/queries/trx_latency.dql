@@ -12,21 +12,23 @@ fetch logs
           and (contains(content, "::AUDIT::REQ::") or contains(content, "::AUDIT::RESP::")))
 | fieldsAdd is_mngr = endsWith(aws.log_group, "-mngr")
 // mngr step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>][backend][nivel][fase][paso][tiempo unidad]
-| parse content, "LD '] [' LD:mngr_rquid '][' LD:mngr_channel ']'"
+| parse content, "LD '] [' LD:mngr_rquid ']['"
 | parse content, "LD '/ESBService/' LD:service_raw ']'"
 | fieldsAdd parts = if(is_mngr, arrayReverse(splitString(trim(content), "[")))
 | fieldsAdd step = replaceString(parts[1], "]", ""), step_time = replaceString(parts[0], "]", "")
 | parse step_time, "DOUBLE:step_raw_ms"
 | fieldsAdd step_ms = if(is_mngr and step != "AuditLog", step_raw_ms)
-// adapter AUDIT line: ...::HEAD::[X-RqUid=<rquid>,X-Name=<canal>,...]
+// adapter AUDIT line: ...::HEAD::[X-RqUid=<rquid>,X-Name=<canal>,...]; the channel comes from here, the
+// mngr [rquid][tag] slot held the channel for 0 of 1,195 rquids on real data
 | parse content, "LD 'X-RqUid=' LD:adp_rquid ','"
+| parse content, "LD 'X-Name=' LD:adp_channel ','"
 | fieldsAdd rquid = if(is_mngr, mngr_rquid, else: adp_rquid),
             service = splitString(service_raw, ":")[0],
             is_req = contains(content, "::AUDIT::REQ::"),
             is_resp = contains(content, "::AUDIT::RESP::")
 | filter isNotNull(rquid)
 | summarize service = takeAny(service),
-            channel = takeAny(mngr_channel),
+            channel = takeAny(adp_channel),
             total_ms = sum(step_ms),
             adp_req = min(if(is_req, timestamp)),
             adp_resp = max(if(is_resp, timestamp)),
