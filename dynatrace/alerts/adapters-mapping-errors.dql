@@ -1,0 +1,11 @@
+// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-adapters-mapping-errors.
+// Analyzer: static threshold | condition: ABOVE | threshold: 2 | violating samples: 3 | sliding window: 5
+//           dealerting samples: 5 | alert on missing data: off
+// GenericExceptionMapper lines in the adapters, 504 timeouts excluded (those go to adapters-timeouts).
+// CloudWatch fired on >10 per 5 min; here 3 of 5 minutes with 3 or more is the per-minute equivalent.
+fetch logs
+| filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-adapter")
+| filter contains(content, "GenericExceptionMapper") and contains(content, "HttpCode::")
+| parse content, "LD 'HttpCode::' SPACE? INT:http_code"
+| filter http_code != 504
+| makeTimeseries mapping_errors = count(default: 0), interval: 1m

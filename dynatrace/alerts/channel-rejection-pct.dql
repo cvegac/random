@@ -1,0 +1,14 @@
+// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-channel-rejection-pct.
+// Analyzer: static threshold | condition: ABOVE | threshold: 40 | violating samples: 3 | sliding window: 5
+//           dealerting samples: 5 | alert on missing data: off
+// % of SOAP responses to the channel with caracterAceptacion M. M mixes business answers and technical errors,
+// so 40 is a placeholder: calibrate it with the "% rechazo al canal (M)" widget, or use the seasonal baseline
+// analyzer once there is history. Minutes with 10 or fewer responses read as 0 (CloudWatch: >50 per 5 min).
+fetch logs
+| filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-mngr")
+| filter contains(content, "<caracterAceptacion>")
+| makeTimeseries total = count(default: 0),
+    rejected = countIf(contains(content, "<caracterAceptacion>M</caracterAceptacion>"), default: 0),
+    interval: 1m
+| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)
+| fieldsKeep timeframe, interval, rejection_pct
