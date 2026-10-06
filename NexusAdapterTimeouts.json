@@ -1,0 +1,27 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 8,
+      "properties": {
+        "title": "Adapters: requests vs 504 por minuto",
+        "region": "us-east-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 60,
+        "stat": "Sum",
+        "metrics": [
+          ["Nexus/Adapters", "AdapterResponses", {"label": "requests", "yAxis": "left"}],
+          ["Nexus/Adapters", "AdapterTimeouts", {"label": "504 (timeout backend)", "yAxis": "right", "color": "#d62728"}]
+        ],
+        "yAxis": {
+          "left": {"label": "requests / min", "min": 0, "showUnits": false},
+          "right": {"label": "504 / min", "min": 0, "showUnits": false}
+        }
+      }
+    }
+  ]
+}
