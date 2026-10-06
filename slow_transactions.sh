@@ -10,14 +10,14 @@
 #                for it (e.g. it ended in ERROR first). Empty when the mngr outlived the adapter call.
 #   proxy_ms   = total_ms - adapter_ms (time spent in the mngr itself); empty when adapter_late_ms is set,
 #                because then the adapter time is not part of the mngr time
-#   start_time = earliest line of the transaction (mngr step or AuditLog, adapter), Colombia time, to the ms
+#   start_time = earliest line of the transaction (mngr or adapter), Colombia time, to the ms
 #   http_code  = ::HTTPCODE:: of the adapter ::AUDIT::RESP:: line
 #   adapter_error = "<system> <code>: <message>" from the RESP body error, and/or "HttpCode <n>: <exception>"
 #                from GenericExceptionMapper, cut at the first "." (customer data follows ".RESPONSE:")
 #   mngr_error = text of the mngr [ERROR ...][ text ] line(s), first 200 characters
-#   mngr_audit = full body of the mngr [AuditLog] lines (SOAP from/to the channel), in time order, " || "
-#   adapter_audit = full ::AUDIT::REQ:: / ::AUDIT::RESP:: records of the adapter (REST to the backend), same
-#                The audit columns carry customer data and can be huge (Excel cuts a cell at 32,767 chars).
+#   adapter_audit = full ::AUDIT::REQ:: / ::AUDIT::RESP:: records of the adapter (REST to the backend), in
+#                time order, joined with " || ". Carries customer data and can be huge (Excel cuts a cell at
+#                32,767 chars).
 # A transaction is listed when total_ms OR adapter_ms is over the threshold.
 # Times come from the date the app wrote at the start of each message (adapter "...:SS.ffffff", mngr
 # "...:SS,fff", Colombia time), not from @timestamp; lines without that date fall back to @timestamp. The
@@ -263,7 +263,7 @@ OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
-HEADER="trx,start_time,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,http_code,adapter_error,mngr_error,step_count,steps,mngr_audit,adapter_audit"
+HEADER="trx,start_time,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,http_code,adapter_error,mngr_error,step_count,steps,adapter_audit"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
@@ -363,7 +363,7 @@ jq -R -s -r --argjson n "$BATCH_SIZE" --argjson ws "$START" --argjson we "$END" 
 while IFS=$'\t' read -r s e regex; do
   PQ_QUERY+=("fields @timestamp, @message
 | filter @message like /${regex}/ and (@message like \"[/\" or @message like \"X-Name=\"
-    or @message like \"GenericExceptionMapper\" or @message like \"[ERROR\" or @message like \"[AuditLog]\")
+    or @message like \"GenericExceptionMapper\" or @message like \"[ERROR\")
 | parse @message ${STEP_RE}
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
@@ -375,12 +375,11 @@ while IFS=$'\t' read -r s e regex; do
 | parse @message /\"error\":\{[^}]*\"system\":\"(?<errSystem>[^\"]*)\"/
 | parse @message /HttpCode::\s*(?<mapCode>\d+)::Exception:\s*(?<mapExc>[^.]*)/
 | parse @message /\[(?<errRqid>[a-f0-9\-]{36})\]\[ERROR[^\]]*\]\[\s*(?<mngrErr>[^\]]*)\]/
-| parse @message /\[(?<auditRqid>[a-f0-9\-]{36})\]\[[^\]]*\]\[(?<mngrAudit>.*)\]\[AuditLog\]/
 | parse @message /(?<adpAudit>::AUDIT::.*)/${MSG_TIME}
-| fields coalesce(mngrRqid, adpRqid, errRqid, auditRqid) as trx
+| fields coalesce(mngrRqid, adpRqid, errRqid) as trx
 | filter isPresent(trx)
 | display msgTs, trx, Paso, stepMs, servicio, xname, refService, httpCode, errCode, errMsg, errSystem,
-    mapCode, mapExc, mngrErr, mngrAudit, adpAudit
+    mapCode, mapExc, mngrErr, adpAudit
 | sort msgTs asc
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
@@ -438,8 +437,6 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" --arg
          ([$rows[] | select(.stepMs != null)]
           | sort_by((.msgTs // "0" | tonumber), ($pipeline[.Paso] // 99))
           | map("\(.Paso): \(.stepMs) ms") | join("; ")),
-         ([$rows[] | select(.mngrAudit != null)] | sort_by(.msgTs // "0" | tonumber)
-          | map(.mngrAudit | sub("^\\s+"; "") | sub("\\s+$"; "")) | join(" || ")),
          ([$rows[] | select(.adpAudit != null)] | sort_by(.msgTs // "0" | tonumber)
           | map(.adpAudit | ltrimstr("::AUDIT::")) | join(" || ")) ])
   | @csv' | tr -d '\r' > "$OUT_CSV"
