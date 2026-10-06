@@ -1,0 +1,41 @@
+// Per-transaction latency: mngr (proxy WS / ESB) joined with the adapter it calls, by rquid.
+// Columns: trx, service, channel, total_ms, proxy_ms, adapter_ms, steps.
+//   total_ms   = sum of the mngr ESB step times
+//   adapter_ms = adapter ::AUDIT::RESP:: timestamp - ::AUDIT::REQ:: timestamp (same X-RqUid)
+//   proxy_ms   = total_ms - adapter_ms (time spent in the mngr itself)
+// Assumes one ESB step wraps the adapter call; if proxy_ms comes out negative, that assumption is wrong.
+// Heavy (one row per rquid): keep the timeframe short or add a service/cluster filter.
+fetch logs
+| filter startsWith(aws.log_group, "/aws/ecs/srv/")
+| filter (endsWith(aws.log_group, "-mngr") and contains(content, "[/"))
+      or (endsWith(aws.log_group, "-adapter")
+          and (contains(content, "::AUDIT::REQ::") or contains(content, "::AUDIT::RESP::")))
+| fieldsAdd is_mngr = endsWith(aws.log_group, "-mngr")
+// mngr step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>][backend][nivel][fase][paso][tiempo unidad]
+| parse content, "LD '] [' LD:mngr_rquid '][' LD:mngr_channel ']'"
+| parse content, "LD '/ESBService/' LD:service_raw ']'"
+| fieldsAdd parts = if(is_mngr, arrayReverse(splitString(trim(content), "[")))
+| fieldsAdd step = replaceString(parts[1], "]", ""), step_time = replaceString(parts[0], "]", "")
+| parse step_time, "DOUBLE:step_raw_ms"
+| fieldsAdd step_ms = if(is_mngr and step != "AuditLog", step_raw_ms)
+// adapter AUDIT line: ...::HEAD::[X-RqUid=<rquid>,X-Name=<canal>,...]
+| parse content, "LD 'X-RqUid=' LD:adp_rquid ','"
+| fieldsAdd rquid = if(is_mngr, mngr_rquid, else: adp_rquid),
+            service = splitString(service_raw, ":")[0],
+            is_req = contains(content, "::AUDIT::REQ::"),
+            is_resp = contains(content, "::AUDIT::RESP::")
+| filter isNotNull(rquid)
+| summarize service = takeAny(service),
+            channel = takeAny(mngr_channel),
+            total_ms = sum(step_ms),
+            adp_req = min(if(is_req, timestamp)),
+            adp_resp = max(if(is_resp, timestamp)),
+            steps = collectArray(if(isNotNull(step_ms), concat(step, ": ", toString(step_ms), " ms"))),
+            by: { trx = rquid }
+| filter isNotNull(total_ms)
+| fieldsAdd adapter_ms = toLong(adp_resp - adp_req) / 1000000.0
+| fieldsAdd proxy_ms = total_ms - adapter_ms
+| fieldsAdd steps = arrayRemoveNulls(steps)
+| fields trx, service, channel, total_ms, proxy_ms, adapter_ms, steps
+| sort total_ms desc
+| limit 200
