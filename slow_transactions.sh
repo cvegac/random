@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Lists the transactions slower than THRESHOLD_MS end to end in the mngr, with the time split between the
-# mngr itself (proxy) and the adapter it calls, plus every ESB step. Log groups come from NexusGeneral.json
-# (see cw_groups in lib/cw.sh).
+# mngr itself (proxy) and the adapter it calls, plus every ESB step.
+# Self-contained on purpose (copied as a single file to machines without this repo): no lib/, no dashboard
+# JSON. The log group lists below mirror the SOURCE lines of NexusGeneral.json; keep them in sync.
 #   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines)
 #   adapter_ms = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid); empty if no adapter call
 #   proxy_ms   = total_ms - adapter_ms (negative = no ESB step wraps the adapter call)
@@ -18,13 +19,119 @@
 # Output: results/slow_<start>__<end>[_<cluster>][_<service>]/slow_transactions.csv, slowest first
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, DASHBOARD_JSON, DEBUG (0/1/2),
+# Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x),
 #                    THRESHOLD_MS / CLUSTER / SERVICE  defaults for -t / -c / -s
 #                    BATCH_SIZE    rquids per step-2 query (default 100; query length limit 10,000 chars)
 set -euo pipefail
 
-# shellcheck source=lib/cw.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/cw.sh"
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
+                                              # and crashes on log lines it can't map to that charset
+# Side effect of MSYS2_ARG_CONV_EXCL: an absolute path passed as an ARGUMENT to a native Windows binary
+# (jq.exe) reaches it unconverted (/d/... instead of D:\...). Always feed jq files through stdin.
+
+DEBUG="${DEBUG:-1}"
+[ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
+
+REGION="${AWS_REGION:-us-east-1}"
+TZ_OFFSET="-05:00"                       # Colombia (no DST)
+FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row [{field, value}...] -> {field: value}
+
+MNGR_GROUPS_ALL=(
+  /aws/ecs/srv/accountsws-mngr /aws/ecs/srv/acquiringws-mngr /aws/ecs/srv/clientsws-mngr
+  /aws/ecs/srv/credit-cardsws-mngr /aws/ecs/srv/insurancesws-mngr /aws/ecs/srv/investmentsws-mngr
+  /aws/ecs/srv/loansws-mngr /aws/ecs/srv/paymentsws-mngr /aws/ecs/srv/productsws-mngr
+  /aws/ecs/srv/remittancesws-mngr /aws/ecs/srv/securityws-mngr
+)
+ADAPTER_GROUPS_ALL=(
+  /aws/ecs/srv/accountsws-iseries-adapter /aws/ecs/srv/accountsws-stratus-adapter
+  /aws/ecs/srv/acquiringws-stratus-adapter /aws/ecs/srv/clientsws-stratus-adapter
+  /aws/ecs/srv/credit-cardsws-iseries-adapter /aws/ecs/srv/credit-cardsws-postilion-adapter
+  /aws/ecs/srv/credit-cardsws-stratus-adapter /aws/ecs/srv/insurancesws-stratus-adapter
+  /aws/ecs/srv/investmentsws-stratus-adapter /aws/ecs/srv/loansws-stratus-adapter
+  /aws/ecs/srv/paymentsws-iseries-adapter /aws/ecs/srv/paymentsws-stratus-adapter
+  /aws/ecs/srv/productsws-stratus-adapter /aws/ecs/srv/remittancesws-stratus-adapter
+  /aws/ecs/srv/securityws-stratus-adapter
+)
+
+log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
+debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
+die()   { echo "Error: $*" >&2; exit 1; }
+
+# "YYYY-MM-DD HH:MM:SS" in Colombia time -> epoch seconds
+to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
+
+# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
+# stderr (real errors still print and log to $TMP/aws_errors.log).
+aws_cli() {
+  local errfile rc=0 real
+  errfile=$(mktemp)
+  aws --no-verify-ssl "$@" 2> "$errfile" || rc=$?
+  real=$(awk '!/InsecureRequestWarning/ && !/^[[:space:]]*warnings\.warn\(/' "$errfile" | tr -d '\r')
+  rm -f "$errfile"
+  if [ -n "$real" ]; then
+    echo "$real" >&2
+    if [ -n "${TMP:-}" ]; then echo "[$(date +%T)] aws ${1:-} ${2:-} (exit $rc): $real" >> "$TMP/aws_errors.log"; fi
+  fi
+  if [ "$rc" -ne 0 ]; then
+    log "aws ${1:-} ${2:-} FAILED (exit code $rc)"
+    case "$real" in
+      *charmap*) log "  hint: encoding problem in the aws cli output; check PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+    esac
+  fi
+  return "$rc"
+}
+
+# cw_submit "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the query id
+# Retries while the account is at its concurrent-query quota (LimitExceededException).
+cw_submit() {
+  local query="$1" start="$2" end="$3"; shift 3
+  local qid errfile attempt
+  errfile=$(mktemp)
+  for attempt in 1 2 3 4 5 6; do
+    if qid=$(aws_cli logs start-query --region "$REGION" \
+               --start-time "$start" --end-time "$end" \
+               --query-string "$query" --log-group-names "$@" \
+               --query queryId --output text 2> "$errfile" | tr -d '\r'); then
+      rm -f "$errfile"
+      debug "query id: $qid"
+      printf '%s' "$qid"
+      return 0
+    fi
+    case "$(< "$errfile")" in
+      *LimitExceeded*) log "  concurrent query quota reached, retrying in $((attempt * 10))s"; sleep $((attempt * 10)) ;;
+      *) cat "$errfile" >&2; rm -f "$errfile"; return 1 ;;
+    esac
+  done
+  rm -f "$errfile"
+  die "start-query still throttled after $attempt attempts"
+}
+
+# cw_collect <query id>  -> polls until the query finishes, prints the results JSON
+cw_collect() {
+  local qid="$1" res status polls=0 t0=$SECONDS
+  while :; do
+    polls=$((polls + 1))
+    res=$(aws_cli logs get-query-results --region "$REGION" --query-id "$qid" --output json)
+    status=$(jq -r .status <<<"$res" | tr -d '\r')
+    debug "poll #$polls $qid status=$status"
+    case "$status" in
+      Complete) break ;;
+      Failed|Cancelled|Timeout) die "query $qid ended with status $status" ;;
+    esac
+    sleep 2
+  done
+  log "  query $qid complete: $(jq '.results | length' <<<"$res" | tr -d '\r') rows in $((SECONDS - t0))s"
+  printf '%s' "$res"
+}
+
+# run_query "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the results JSON
+run_query() {
+  local qid
+  qid=$(cw_submit "$@") || die "start-query failed"
+  cw_collect "$qid"
+}
 
 OUT_BASE="${OUT_BASE:-results}"
 THRESHOLD_MS="${THRESHOLD_MS:-1000}"
@@ -50,12 +157,15 @@ shift $((OPTIND - 1))
 [[ -z "$CLUSTER" || "$CLUSTER" =~ ^[a-z-]+$ ]] || die "-c must be a cluster name like productsws or credit-cardsws"
 [[ -z "$SERVICE" || "$SERVICE" =~ ^[A-Za-z0-9_]+$ ]] || die "-s must be a service name like ConsultaProductos"
 [ -z "$SERVICE" ] || [ -n "$CLUSTER" ] || log "Tip: add -c <cluster> with -s, or every cluster is scanned for one service"
-cw_require_tools
+command -v aws >/dev/null || die "aws cli not found"
+command -v jq  >/dev/null || die "jq not found"
 
 in_cluster() { if [ -n "$CLUSTER" ]; then grep "^/aws/ecs/srv/${CLUSTER}-" || true; else cat; fi; }
-mapfile -t MNGR_GROUPS < <(cw_groups mngr | in_cluster)
-mapfile -t ADAPTER_GROUPS < <(cw_groups adapter | in_cluster)
-[ "${#MNGR_GROUPS[@]}" -gt 0 ] || die "no mngr log groups${CLUSTER:+ for cluster '$CLUSTER'} in $DASHBOARD_JSON"
+mapfile -t MNGR_GROUPS < <(printf '%s\n' "${MNGR_GROUPS_ALL[@]}" | in_cluster)
+mapfile -t ADAPTER_GROUPS < <(printf '%s\n' "${ADAPTER_GROUPS_ALL[@]}" | in_cluster)
+if [ "${#MNGR_GROUPS[@]}" -eq 0 ]; then
+  die "unknown cluster '$CLUSTER'; valid: $(printf '%s\n' "${MNGR_GROUPS_ALL[@]}" | sed 's|/aws/ecs/srv/||; s|-mngr$||' | tr '\n' ' ')"
+fi
 ALL_GROUPS=("${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}")
 
 to_label() { date -d "$1" +%Y%m%d_%H%M%S; }
@@ -71,7 +181,9 @@ OUT_CSV="$OUT_DIR/slow_transactions.csv"
 HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,step_count,steps"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
-cw_debug_env
+if [ "$DEBUG" != 0 ]; then
+  debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r')"
+fi
 
 # mngr ESB step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>]...[paso][tiempo unidad]
 STEP_RE='/\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/'
@@ -153,7 +265,7 @@ done
 # ---------------------------------------------------------------- step 3: CSV
 
 log "Step 3: building $OUT_CSV"
-# TSV -> JSON array via stdin (never a jq path argument, see the note in lib/cw.sh)
+# TSV -> JSON array via stdin (never a jq path argument, see the MSYS note at the top)
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
           | {trx: .[0], total: (.[1] | tonumber), step_count: (.[2] | tonumber),
              adapter: (if .[3] == "" then null else (.[3] | tonumber) end)})' < "$TMP/1_slow.tsv" > "$TMP/slow.json"
