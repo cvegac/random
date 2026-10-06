@@ -14,7 +14,6 @@
 #   http_code  = ::HTTPCODE:: of the adapter ::AUDIT::RESP:: line
 #   adapter_error = "<system> <code>: <message>" from the RESP body error, and/or "HttpCode <n>: <exception>"
 #                from GenericExceptionMapper, cut at the first "." (customer data follows ".RESPONSE:")
-#   mngr_error = text of the mngr [ERROR ...][ text ] line(s), first 200 characters
 #   adapter_audit = full ::AUDIT::REQ:: / ::AUDIT::RESP:: records of the adapter (REST to the backend), in
 #                time order, joined with " || ". Carries customer data and can be huge (Excel cuts a cell at
 #                32,767 chars).
@@ -263,7 +262,7 @@ OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
-HEADER="trx,start_time,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,http_code,adapter_error,mngr_error,step_count,steps,adapter_audit"
+HEADER="trx,start_time,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,http_code,adapter_error,step_count,steps,adapter_audit"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
@@ -363,7 +362,7 @@ jq -R -s -r --argjson n "$BATCH_SIZE" --argjson ws "$START" --argjson we "$END" 
 while IFS=$'\t' read -r s e regex; do
   PQ_QUERY+=("fields @timestamp, @message
 | filter @message like /${regex}/ and (@message like \"[/\" or @message like \"X-Name=\"
-    or @message like \"GenericExceptionMapper\" or @message like \"[ERROR\")
+    or @message like \"GenericExceptionMapper\")
 | parse @message ${STEP_RE}
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
@@ -374,12 +373,11 @@ while IFS=$'\t' read -r s e regex; do
 | parse @message /\"error\":\{[^}]*\"message\":\"(?<errMsg>[^\"]*)\"/
 | parse @message /\"error\":\{[^}]*\"system\":\"(?<errSystem>[^\"]*)\"/
 | parse @message /HttpCode::\s*(?<mapCode>\d+)::Exception:\s*(?<mapExc>[^.]*)/
-| parse @message /\[(?<errRqid>[a-f0-9\-]{36})\]\[ERROR[^\]]*\]\[\s*(?<mngrErr>[^\]]*)\]/
 | parse @message /(?<adpAudit>::AUDIT::.*)/${MSG_TIME}
-| fields coalesce(mngrRqid, adpRqid, errRqid) as trx
+| fields coalesce(mngrRqid, adpRqid) as trx
 | filter isPresent(trx)
 | display msgTs, trx, Paso, stepMs, servicio, xname, refService, httpCode, errCode, errMsg, errSystem,
-    mapCode, mapExc, mngrErr, adpAudit
+    mapCode, mapExc, adpAudit
 | sort msgTs asc
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
@@ -432,7 +430,6 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" --arg
            | "\(.errSystem // "?") \(.errCode // "?"): \(.errMsg // "")"]
           + [$rows[] | select(.mapExc != null) | "HttpCode \(.mapCode): \(.mapExc | sub("\\s+$"; ""))"]
           | unique | join(" | ")),
-         ([$rows[] | .mngrErr // empty | sub("\\s+$"; "")] | unique | join(" | ") | .[0:200]),
          .step_count,
          ([$rows[] | select(.stepMs != null)]
           | sort_by((.msgTs // "0" | tonumber), ($pipeline[.Paso] // 99))
