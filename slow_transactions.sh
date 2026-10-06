@@ -3,9 +3,11 @@
 # mngr itself (proxy) and the adapter it calls, plus every ESB step.
 # Self-contained on purpose (copied as a single file to machines without this repo): no lib/, no dashboard
 # JSON. The log group lists below mirror the SOURCE lines of NexusGeneral.json; keep them in sync.
-#   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines)
+#   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines); empty when the mngr
+#                logged no step for the transaction (seen on adapter timeouts)
 #   adapter_ms = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid); empty if no adapter call
 #   proxy_ms   = total_ms - adapter_ms (negative = no ESB step wraps the adapter call)
+# A transaction is listed when total_ms OR adapter_ms is over the threshold.
 #
 # Step 1 aggregates per transaction inside CloudWatch and returns only the slow ones; step 2 fetches the
 # steps, service and channel (adapter X-Name) of just those, in batches of rquids.
@@ -25,7 +27,7 @@
 #                    BATCH_SIZE    rquids per step-2 query (default 100; query length limit 10,000 chars)
 #                    CHUNK_MINUTES step-1 window slice, the slices run in parallel (default 60)
 #                    MAX_PARALLEL  queries running at once (default 10; the account quota is shared with
-#                                  everyone else, LimitExceeded is retried)
+#                                  everyone else; LimitExceeded and "Rate exceeded" are retried)
 #                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .slow_transactions_cache),
 #                    CACHE_DAYS    cached results older than this are deleted at startup (default 7)
 #
@@ -99,7 +101,8 @@ aws_cli() {
 }
 
 # cw_submit "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the query id
-# Retries while the account is at its concurrent-query quota (LimitExceededException).
+# Retries while the account is at its concurrent-query quota (LimitExceededException) or over the StartQuery
+# request rate (ThrottlingException "Rate exceeded", shared with every dashboard open in the account).
 cw_submit() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid errfile attempt
@@ -116,6 +119,7 @@ cw_submit() {
     fi
     case "$(< "$errfile")" in
       *LimitExceeded*) log "  concurrent query quota reached, retrying in $((attempt * 10))s"; sleep $((attempt * 10)) ;;
+      *Throttling*|*"Rate exceeded"*) log "  StartQuery rate exceeded, retrying in $((attempt * 3))s"; sleep $((attempt * 3)) ;;
       *) cat "$errfile" >&2; rm -f "$errfile"; return 1 ;;
     esac
   done
@@ -261,11 +265,12 @@ log "Step 1: transactions over ${THRESHOLD_MS} ms${SERVICE:+ of $SERVICE} in ${#
 # Only numeric aggregates here (sum/min/max), which ignore lines without the field. A REQ/RESP time is
 # replaced by a sentinel on every other line so min/max pick only the adapter's own AUDIT lines.
 # The service filter can't drop lines (adapter AUDIT lines don't always name the service): it counts the
-# trx's mngr steps of that service and keeps the trx if there is at least one.
+# trx's lines naming that service, as an mngr step (/ESBService/<Service>) or in the adapter X-Referer
+# (...-<Service>-...), and keeps the trx if there is at least one. Timeouts may have no mngr step at all.
 SVC_PARSE="" SVC_FIELD="" SVC_STAT="" SVC_FILTER=""
 if [ -n "$SERVICE" ]; then
   SVC_PARSE="
-| parse @message /(?<svcMark>\/ESBService\/${SERVICE}[:\]])/"
+| parse @message /(?<svcMark>\/ESBService\/${SERVICE}[:\]]|X-Referer=[^,\]]*-${SERVICE}-)/"
   SVC_FIELD=",
          if(isPresent(svcMark), 1, 0) as isSvc"
   SVC_STAT=", sum(isSvc) as svcLines"
@@ -285,8 +290,8 @@ q1="fields @timestamp, @message
          if(isPresent(stepMs), 1, 0) as isStep${SVC_FIELD}
 | filter isPresent(trx)
 | stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp,
-    min(tsMs) as firstTs, max(tsMs) as lastTs${SVC_STAT} by trx
-| filter stepCount > 0 and totalMs > ${THRESHOLD_MS}${SVC_FILTER}
+    max(respTs) - min(reqTs) as adpSpan, min(tsMs) as firstTs, max(tsMs) as lastTs${SVC_STAT} by trx
+| filter ((stepCount > 0 and totalMs > ${THRESHOLD_MS}) or adpSpan > ${THRESHOLD_MS})${SVC_FILTER}
 | sort totalMs desc
 | limit 10000"
 
@@ -333,9 +338,10 @@ while IFS=$'\t' read -r s e regex; do
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
 | parse @message /X-Name=(?<xname>[^,\]]+)/
+| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/
 | fields coalesce(mngrRqid, adpRqid) as trx
 | filter isPresent(trx)
-| display @timestamp, trx, Paso, stepMs, servicio, xname
+| display @timestamp, trx, Paso, stepMs, servicio, xname, refService
 | sort @timestamp asc
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
@@ -358,14 +364,17 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
   def ms: . * 100 | round / 100;
   (.[1] | group_by(.trx) | map({key: .[0].trx, value: .}) | from_entries) as $detail
   | .[0]
-  | sort_by(-.total)
+  # without mngr steps (e.g. an adapter timeout) the mngr total is unknown: total/proxy stay empty and the
+  # adapter time ranks it; the service then comes from the adapter X-Referer
+  | map(. + {has_steps: (.step_count > 0)}) | sort_by(-([(if .has_steps then .total else 0 end), (.adapter // 0)] | max))
   | ($header | split(",")),
     (.[] | ($detail[.trx] // []) as $rows
      | [ .trx,
-         ([$rows[] | .servicio // empty] | first // "" | ltrimstr("/ESBService/") | split(":")[0]),
+         (([$rows[] | .servicio // empty] | first | values | ltrimstr("/ESBService/") | split(":")[0])
+          // ([$rows[] | .refService // empty] | first) // ""),
          ([$rows[] | .xname // empty] | first // ""),
-         (.total | ms),
-         (if .adapter == null then "" else (.total - .adapter | ms) end),
+         (if .has_steps then (.total | ms) else "" end),
+         (if .adapter == null or (.has_steps | not) then "" else (.total - .adapter | ms) end),
          (if .adapter == null then "" else .adapter end),
          .step_count,
          ([$rows[] | select(.stepMs != null) | "\(.Paso): \(.stepMs) ms"] | join("; ")) ])
