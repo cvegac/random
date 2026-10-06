@@ -10,6 +10,11 @@
 #                for it (e.g. it ended in ERROR first). Empty when the mngr outlived the adapter call.
 #   proxy_ms   = total_ms - adapter_ms (time spent in the mngr itself); empty when adapter_late_ms is set,
 #                because then the adapter time is not part of the mngr time
+#   start_time = first line of the transaction (mngr or adapter), Colombia time, to the millisecond
+#   http_code  = ::HTTPCODE:: of the adapter ::AUDIT::RESP:: line
+#   adapter_error = "<system> <code>: <message>" from the RESP body error, and/or "HttpCode <n>: <exception>"
+#                from GenericExceptionMapper, cut at the first "." (customer data follows ".RESPONSE:")
+#   mngr_error = text of the mngr [ERROR ...][ text ] line(s), first 200 characters
 # A transaction is listed when total_ms OR adapter_ms is over the threshold.
 # Times come from the date the app wrote at the start of each message (adapter "...:SS.ffffff", mngr
 # "...:SS,fff", Colombia time), not from @timestamp; lines without that date fall back to @timestamp. The
@@ -255,7 +260,7 @@ OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
-HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,step_count,steps"
+HEADER="trx,start_time,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,http_code,adapter_error,mngr_error,step_count,steps"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
@@ -354,15 +359,23 @@ jq -R -s -r --argjson n "$BATCH_SIZE" --argjson ws "$START" --argjson we "$END" 
 
 while IFS=$'\t' read -r s e regex; do
   PQ_QUERY+=("fields @timestamp, @message
-| filter @message like /${regex}/ and (@message like \"[/\" or @message like \"X-Name=\")
+| filter @message like /${regex}/ and (@message like \"[/\" or @message like \"X-Name=\"
+    or @message like \"GenericExceptionMapper\" or @message like \"[ERROR\")
 | parse @message ${STEP_RE}
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
 | parse @message /X-Name=(?<xname>[^,\]]+)/
-| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/${MSG_TIME}
-| fields coalesce(mngrRqid, adpRqid) as trx
+| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/
+| parse @message /::HTTPCODE::\s*(?<httpCode>\d+)/
+| parse @message /\"error\":\{[^}]*\"code\":\"(?<errCode>[^\"]*)\"/
+| parse @message /\"error\":\{[^}]*\"message\":\"(?<errMsg>[^\"]*)\"/
+| parse @message /\"error\":\{[^}]*\"system\":\"(?<errSystem>[^\"]*)\"/
+| parse @message /HttpCode::\s*(?<mapCode>\d+)::Exception:\s*(?<mapExc>[^.]*)/
+| parse @message /\[(?<errRqid>[a-f0-9\-]{36})\]\[ERROR[^\]]*\]\[\s*(?<mngrErr>[^\]]*)\]/${MSG_TIME}
+| fields coalesce(mngrRqid, adpRqid, errRqid) as trx
 | filter isPresent(trx)
-| display msgTs, trx, Paso, stepMs, servicio, xname, refService
+| display msgTs, trx, Paso, stepMs, servicio, xname, refService, httpCode, errCode, errMsg, errSystem,
+    mapCode, mapExc, mngrErr
 | sort msgTs asc
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
@@ -379,11 +392,15 @@ log "Step 3: building $OUT_CSV"
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
           | {trx: .[0], total: (.[1] | tonumber), step_count: (.[2] | tonumber),
              adapter: (if .[3] == "" then null else (.[3] | tonumber) end),
+             first: (.[4] | tonumber),
              late: (if .[6] == "" then null else (.[6] | tonumber) end)})' < "$TMP/1_slow.tsv" > "$TMP/slow.json"
 jq -s '.' < "$TMP/2_details.ndjson" > "$TMP/details.json"
 
-cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
+tz_s=$((tz_ms / 1000)); [ "${TZ_OFFSET:0:1}" != "-" ] || tz_s=$((-tz_s))
+cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" --argjson tz "$tz_s" '
   def ms: . * 100 | round / 100;
+  # epoch ms -> "YYYY-MM-DD HH:MM:SS.mmm" in TZ_OFFSET
+  def local_time: ((. / 1000 | floor) + $tz | strftime("%Y-%m-%d %H:%M:%S")) + "." + ("00\(. % 1000)" | .[-3:]);
   # mngr lines only have millisecond precision and several steps share the same millisecond, so ties are
   # broken by the ESB pipeline order (same as the columns of query_nexus_traces.sh); unknown steps go last
   (["ValidateServiceInformation", "SignatureValidationStep", "BodyManipulatorStep", "XsdValidationStep",
@@ -398,6 +415,7 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
   | ($header | split(",")),
     (.[] | ($detail[.trx] // []) as $rows
      | [ .trx,
+         (.first | local_time),
          (([$rows[] | .servicio // empty] | first | values | ltrimstr("/ESBService/") | split(":")[0])
           // ([$rows[] | .refService // empty] | first) // ""),
          ([$rows[] | .xname // empty] | first // ""),
@@ -405,6 +423,12 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
          (if .adapter == null or (.has_steps | not) or .late != null then "" else (.total - .adapter | ms) end),
          (if .adapter == null then "" else .adapter end),
          (if .late == null then "" else .late end),
+         ([$rows[] | .httpCode // empty] | first // ""),
+         ([$rows[] | select(.errCode != null or .errMsg != null)
+           | "\(.errSystem // "?") \(.errCode // "?"): \(.errMsg // "")"]
+          + [$rows[] | select(.mapExc != null) | "HttpCode \(.mapCode): \(.mapExc | sub("\\s+$"; ""))"]
+          | unique | join(" | ")),
+         ([$rows[] | .mngrErr // empty | sub("\\s+$"; "")] | unique | join(" | ") | .[0:200]),
          .step_count,
          ([$rows[] | select(.stepMs != null)]
           | sort_by((.msgTs // "0" | tonumber), ($pipeline[.Paso] // 99))
