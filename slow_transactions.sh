@@ -16,7 +16,8 @@
 #           -t  minimum total time in ms (default 1000)
 #           start/end: "YYYY-MM-DD HH:MM:SS", Colombia local time (UTC-5)
 # Example: ./slow_transactions.sh -c productsws -s ConsultaProductos "2026-10-06 08:00:00" "2026-10-06 09:00:00"
-# Output: results/slow_<start>__<end>[_<cluster>][_<service>]/slow_transactions.csv, slowest first
+# Output: results/<name>/<name>.csv, slowest first, where <name> = <service>_<start>-<end>
+#         (e.g. ConsultaCuentasInscritas_20261003_0000-20261004_0000; the cluster, or "all", without -s)
 #
 # Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x),
@@ -168,16 +169,18 @@ if [ "${#MNGR_GROUPS[@]}" -eq 0 ]; then
 fi
 ALL_GROUPS=("${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}")
 
-to_label() { date -d "$1" +%Y%m%d_%H%M%S; }
+to_label() { date -d "$1" +%Y%m%d_%H%M; }
 
 START=$(to_epoch "$1")
 END=$(to_epoch "$2")
 [ "$START" -lt "$END" ] || die "start time must be before end time"
 
-OUT_DIR="${OUT_BASE}/slow_$(to_label "$1")__$(to_label "$2")${CLUSTER:+_$CLUSTER}${SERVICE:+_$SERVICE}"
+# <service>_<start>-<end>, e.g. ConsultaCuentasInscritas_20261003_0000-20261004_0000 (cluster or "all" without -s)
+FILE_NAME="${SERVICE:-${CLUSTER:-all}}_$(to_label "$1")-$(to_label "$2")"
+OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
-OUT_CSV="$OUT_DIR/slow_transactions.csv"
+OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
 HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,step_count,steps"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
