@@ -1,0 +1,22 @@
+// Custom alert (Anomaly Detection app). Replaces the CloudWatch alarm nexus-gateway-latency-p95 until the
+// gateway logs are ingested: same end-to-end idea, measured in the mngr instead of the API Gateway.
+// Analyzer: static threshold | condition: ABOVE | threshold: 2500 | violating samples: 3 | sliding window: 5
+//           dealerting samples: 5 | alert on missing data: off
+// p90 of the per-transaction time (sum of the mngr ESB step times, same as total_ms in
+// dynatrace/queries/trx_latency.dql), by the minute the transaction started. Minutes with 10 or fewer
+// transactions read as 0. Transactions cut at the edge of the query window add up fewer steps and read faster.
+// When it fires, dynatrace/queries/trx_latency.dql or slow_transactions.sh show which transactions were slow.
+fetch logs
+| filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-mngr")
+| filter contains(content, "[/")
+// mngr step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>][backend][nivel][fase][paso][tiempo unidad]
+| parse content, "LD '] [' LD:rquid ']['"
+| fieldsAdd parts = arrayReverse(splitString(trim(content), "["))
+| fieldsAdd step = replaceString(parts[1], "]", ""), step_time = replaceString(parts[0], "]", "")
+| filter step != "AuditLog"
+| parse step_time, "DOUBLE:step_ms"
+| filter isNotNull(rquid) and isNotNull(step_ms)
+| summarize total_ms = sum(step_ms), started = min(timestamp), by: { rquid }
+| makeTimeseries trx = count(default: 0), p90_ms = percentile(total_ms, 90), time: started, interval: 1m
+| fieldsAdd p90_ms = if(trx[] > 10, p90_ms[], else: 0.0)
+| fieldsKeep timeframe, interval, p90_ms
