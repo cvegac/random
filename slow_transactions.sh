@@ -6,8 +6,14 @@
 #   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines); empty when the mngr
 #                logged no step for the transaction (seen on adapter timeouts)
 #   adapter_ms = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid); empty if no adapter call
-#   proxy_ms   = total_ms - adapter_ms (negative = no ESB step wraps the adapter call)
+#   adapter_late_ms = how long after the mngr's last ESB step the adapter answered: the mngr did not wait
+#                for it (e.g. it ended in ERROR first). Empty when the mngr outlived the adapter call.
+#   proxy_ms   = total_ms - adapter_ms (time spent in the mngr itself); empty when adapter_late_ms is set,
+#                because then the adapter time is not part of the mngr time
 # A transaction is listed when total_ms OR adapter_ms is over the threshold.
+# Times come from the date the app wrote at the start of each message (adapter "...:SS.ffffff", mngr
+# "...:SS,fff", Colombia time), not from @timestamp; lines without that date fall back to @timestamp. The
+# start/end window still selects lines by @timestamp: it is the only time CloudWatch can filter on.
 #
 # Step 1 aggregates per transaction inside CloudWatch and returns only the slow ones; step 2 fetches the
 # steps, service and channel (adapter X-Name) of just those, in batches of rquids.
@@ -249,7 +255,7 @@ OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
-HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,step_count,steps"
+HEADER="trx,service,channel,total_ms,proxy_ms,adapter_ms,adapter_late_ms,step_count,steps"
 
 debug "region=$REGION window=$START..$END threshold=${THRESHOLD_MS}ms cluster=${CLUSTER:-all} service=${SERVICE:-all} out=$OUT_DIR"
 if [ "$DEBUG" != 0 ]; then
@@ -258,6 +264,17 @@ fi
 
 # mngr ESB step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>]...[paso][tiempo unidad]
 STEP_RE='/\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/'
+
+# msgTs = epoch ms of the date at the start of the message. Insights can't parse a date string, so the
+# message's time of day is compared with @timestamp's (in TZ_OFFSET) and the difference, wrapped to +-12 h,
+# is added to @timestamp; that also gets the day right around midnight. Falls back to @timestamp.
+tz_ms=$(( (10#${TZ_OFFSET:1:2} * 60 + 10#${TZ_OFFSET:4:2}) * 60000 ))
+if [ "${TZ_OFFSET:0:1}" = "-" ]; then TZ_SHIFT="- $tz_ms"; else TZ_SHIFT="+ $tz_ms"; fi
+MSG_TIME="
+| parse @message /^\d{4}-\d\d-\d\d (?<msgH>\d\d):(?<msgM>\d\d):(?<msgS>\d\d)[.,](?<msgMilli>\d{3})/
+| fields ((msgH * 60 + msgM) * 60 + msgS) * 1000 + msgMilli - (toMillis(@timestamp) ${TZ_SHIFT}) % 86400000 as msgDrift
+| fields coalesce(toMillis(@timestamp) + if(msgDrift > 43200000, msgDrift - 86400000,
+           if(msgDrift + 43200000 < 0, msgDrift + 86400000, msgDrift)), toMillis(@timestamp)) as msgTs"
 
 # ---------------------------------------------------------------- step 1: slow transactions (aggregated)
 
@@ -282,15 +299,16 @@ q1="fields @timestamp, @message
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
 | parse @message /(?<reqMark>::AUDIT::REQ::)/
-| parse @message /(?<respMark>::AUDIT::RESP::)/${SVC_PARSE}
+| parse @message /(?<respMark>::AUDIT::RESP::)/${SVC_PARSE}${MSG_TIME}
 | fields coalesce(mngrRqid, adpRqid) as trx,
-         toMillis(@timestamp) as tsMs,
-         if(isPresent(reqMark), toMillis(@timestamp), 99999999999999) as reqTs,
-         if(isPresent(respMark), toMillis(@timestamp), 0) as respTs,
+         if(isPresent(reqMark), msgTs, 99999999999999) as reqTs,
+         if(isPresent(respMark), msgTs, 0) as respTs,
+         if(isPresent(stepMs), msgTs, 0) as stepTs,
          if(isPresent(stepMs), 1, 0) as isStep${SVC_FIELD}
 | filter isPresent(trx)
 | stats sum(stepMs) as totalMs, sum(isStep) as stepCount, min(reqTs) as adpReq, max(respTs) as adpResp,
-    max(respTs) - min(reqTs) as adpSpan, min(tsMs) as firstTs, max(tsMs) as lastTs${SVC_STAT} by trx
+    max(respTs) - min(reqTs) as adpSpan, max(stepTs) as mngrLast,
+    min(msgTs) as firstTs, max(msgTs) as lastTs${SVC_STAT} by trx
 | filter ((stepCount > 0 and totalMs > ${THRESHOLD_MS}) or adpSpan > ${THRESHOLD_MS})${SVC_FILTER}
 | sort totalMs desc
 | limit 10000"
@@ -305,14 +323,17 @@ n_slices=${#PQ_QUERY[@]}
 run_parallel 1_slow
 
 # Merge the slices: a transaction cut at a slice boundary shows up in both, so its parts are combined.
-# trx<TAB>total<TAB>steps<TAB>adapter_ms<TAB>firstTs<TAB>lastTs (adapter_ms "" without a REQ+RESP pair)
+# trx<TAB>total<TAB>steps<TAB>adapter_ms<TAB>firstTs<TAB>lastTs<TAB>adapter_late_ms (adapter_ms "" without a
+# REQ+RESP pair; adapter_late_ms "" unless the adapter answered after the mngr's last ESB step)
 for ((j = 0; j < n_slices; j++)); do jq -c "$FLAT" < "$TMP/1_slow_$j.json"; done | tr -d '\r' | jq -s -r '
   group_by(.trx) | map({trx: .[0].trx,
       total: (map(.totalMs | tonumber) | add), steps: (map(.stepCount | tonumber) | add),
       req: (map(.adpReq | tonumber) | min), resp: (map(.adpResp | tonumber) | max),
+      mngr_last: (map(.mngrLast | tonumber) | max),
       first: (map(.firstTs | tonumber) | min), last: (map(.lastTs | tonumber) | max)})
   | .[] | [.trx, .total, .steps, (if .resp > 0 and .req < 99999999999999 then .resp - .req else "" end),
-           .first, .last] | @tsv' > "$TMP/1_slow.tsv"
+           .first, .last,
+           (if .steps > 0 and .resp > .mngr_last then .resp - .mngr_last else "" end)] | @tsv' > "$TMP/1_slow.tsv"
 
 n1=$(awk 'END{print NR}' "$TMP/1_slow.tsv")
 log "  -> $n1 transaction(s) over ${THRESHOLD_MS} ms"
@@ -338,11 +359,11 @@ while IFS=$'\t' read -r s e regex; do
 | parse Tiempo /^(?<stepMs>[\d.]+)/
 | parse @message /X-RqUid=(?<adpRqid>[0-9a-f\-]{36})/
 | parse @message /X-Name=(?<xname>[^,\]]+)/
-| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/
+| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/${MSG_TIME}
 | fields coalesce(mngrRqid, adpRqid) as trx
 | filter isPresent(trx)
-| display @timestamp, trx, Paso, stepMs, servicio, xname, refService
-| sort @timestamp asc
+| display msgTs, trx, Paso, stepMs, servicio, xname, refService
+| sort msgTs asc
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
 done < "$TMP/2_batches.tsv"
@@ -357,7 +378,8 @@ log "Step 3: building $OUT_CSV"
 # TSV -> JSON array via stdin (never a jq path argument, see the MSYS note at the top)
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
           | {trx: .[0], total: (.[1] | tonumber), step_count: (.[2] | tonumber),
-             adapter: (if .[3] == "" then null else (.[3] | tonumber) end)})' < "$TMP/1_slow.tsv" > "$TMP/slow.json"
+             adapter: (if .[3] == "" then null else (.[3] | tonumber) end),
+             late: (if .[6] == "" then null else (.[6] | tonumber) end)})' < "$TMP/1_slow.tsv" > "$TMP/slow.json"
 jq -s '.' < "$TMP/2_details.ndjson" > "$TMP/details.json"
 
 cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
@@ -374,8 +396,9 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" '
           // ([$rows[] | .refService // empty] | first) // ""),
          ([$rows[] | .xname // empty] | first // ""),
          (if .has_steps then (.total | ms) else "" end),
-         (if .adapter == null or (.has_steps | not) then "" else (.total - .adapter | ms) end),
+         (if .adapter == null or (.has_steps | not) or .late != null then "" else (.total - .adapter | ms) end),
          (if .adapter == null then "" else .adapter end),
+         (if .late == null then "" else .late end),
          .step_count,
          ([$rows[] | select(.stepMs != null) | "\(.Paso): \(.stepMs) ms"] | join("; ")) ])
   | @csv' | tr -d '\r' > "$OUT_CSV"
