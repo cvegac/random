@@ -14,7 +14,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize responses = count()",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize responses = count()",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -33,7 +33,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"ok_2xx\") / count(), decimals: 2)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"ok_2xx\") / count(), decimals: 2)",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -52,7 +52,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"business_412\") / count(), decimals: 2)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"business_412\") / count(), decimals: 2)",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -71,7 +71,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"error\") / count(), decimals: 2)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize value = round(100.0 * countIf(outcome == \"error\") / count(), decimals: 2)",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -91,7 +91,7 @@
         }
       },
       "description": "Los errores 412 son errores de negocio",
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| filter isNotNull(code)\n| fieldsAdd code = toString(code)\n| makeTimeseries responses = count(), by: { code }",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| filter isNotNull(code)\n| fieldsAdd code = toString(code)\n| makeTimeseries responses = count(), by: { code }",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -110,7 +110,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| filter outcome == \"error\"\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster\"\n| makeTimeseries errors = count(), by: { cluster }",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| filter outcome == \"error\"\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster\"\n| makeTimeseries errors = count(), by: { cluster }",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -129,7 +129,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: if(code >= 400 and code < 500, \"error_4xx\", else: if(code >= 500 and code < 600, \"error_5xx\", else: \"error_other\")))))\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = count(),\n    ok_2xx = countIf(outcome == \"ok_2xx\"),\n    business_412 = countIf(outcome == \"business_412\"),\n    error_4xx = countIf(outcome == \"error_4xx\"),\n    error_5xx = countIf(outcome == \"error_5xx\"),\n    error = countIf(startsWith(outcome, \"error\")),\n    unknown = countIf(outcome == \"unknown\"),\n    by: { service, channel }\n| fieldsAdd pct_error = round(100.0 * error / responses, decimals: 2)\n| sort error desc, responses desc\n| limit 200",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: if(code >= 400 and code < 500, \"error_4xx\", else: if(code >= 500 and code < 600, \"error_5xx\", else: \"error_other\")))))\n| parse content, \"LD 'X-Name=' LD:CH ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = count(),\n    ok_2xx = countIf(outcome == \"ok_2xx\"),\n    business_412 = countIf(outcome == \"business_412\"),\n    error_4xx = countIf(outcome == \"error_4xx\"),\n    error_5xx = countIf(outcome == \"error_5xx\"),\n    error = countIf(startsWith(outcome, \"error\")),\n    unknown = countIf(outcome == \"unknown\"),\n    by: { service, CH }\n| fieldsAdd pct_error = round(100.0 * error / responses, decimals: 2)\n| sort error desc, responses desc\n| limit 200",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -143,7 +143,7 @@
       "visualizationSettings": {
         "table": {
           "columnWidths": {
-            "[\"service\"]": 279.59
+            "[\"service\"]": 247.58
           },
           "sortBy": [
             {
@@ -160,7 +160,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| summarize events = count(), by: { aws.log_group }\n| sort events desc",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| summarize events = count(), by: { aws.log_group }\n| sort events desc",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -171,7 +171,16 @@
       "title": "ADAPTADORES EN USO",
       "type": "data",
       "visualization": "table",
-      "visualizationSettings": {}
+      "visualizationSettings": {
+        "table": {
+          "sortBy": [
+            {
+              "columnId": "[\"aws.log_group\"]",
+              "direction": "ascending"
+            }
+          ]
+        }
+      }
     },
     "10": {
       "davis": {
@@ -179,7 +188,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n// mapping errors are HttpCode 400; the Exception code can be a backend code (e.g. 1111 = connection refused, HttpCode 503)\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code == 400\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1 = args[0],\n            p2 = substring(args[1], from: 2),\n            p3 = substring(args[2], from: 2)\n| fieldsAdd field = if(contains(rule, \"para: %3\"), p3, else: p1)\n// p1 can carry raw customer data (e.g. a whole product record): show only its shape, digits as 9, max 20 chars\n| fieldsAdd p1_shape = substring(replacePattern(p1, \"DIGIT\", \"9\"), from: 0, to: 20)\n| fieldsAdd detail = replaceString(\n                       replaceString(\n                         replaceString(rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                       \"%2\", coalesce(p2, \"%2\")),\n                     \"%3\", coalesce(p3, \"%3\"))\n// lines without X-Referer have no service: the adapter tells at least where it failed\n| fieldsAdd adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), example = takeFirst(detail),\n    by: { direction, rule, field, adapter, service, channel }\n| sort total desc\n| limit 1000",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n// mapping errors are HttpCode 400; the Exception code can be a backend code (e.g. 1111 = connection refused, HttpCode 503)\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code == 400\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1 = args[0],\n            p2 = substring(args[1], from: 2),\n            p3 = substring(args[2], from: 2)\n| fieldsAdd field = if(contains(rule, \"para: %3\"), p3, else: p1)\n// p1 can carry raw customer data (e.g. a whole product record): show only its shape, digits as 9, max 20 chars\n| fieldsAdd p1_shape = substring(replacePattern(p1, \"DIGIT\", \"9\"), from: 0, to: 20)\n| fieldsAdd detail = replaceString(\n                       replaceString(\n                         replaceString(rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                       \"%2\", coalesce(p2, \"%2\")),\n                     \"%3\", coalesce(p3, \"%3\"))\n// lines without X-Referer have no service: the adapter tells at least where it failed\n| fieldsAdd adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| parse content, \"LD 'X-Name=' LD:CH ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), example = takeFirst(detail),\n    by: { direction, rule, field, adapter, service, CH }\n| sort total desc\n| limit 1000",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -200,7 +209,7 @@
             "[\"rule\"]",
             "[\"adapter\"]",
             "[\"service\"]",
-            "[\"channel\"]"
+            "[\"CH\"]"
           ]
         }
       }
@@ -211,7 +220,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'Exception:' SPACE? INT:code\"\n| filter code == 504\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { service, channel }\n| sort total desc\n| limit 1000",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'Exception:' SPACE? INT:code\"\n| filter code == 504\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), by: { service, channel }\n| sort total desc\n| limit 1000",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -238,7 +247,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| filter outcome == \"error\"\n| parse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n// body = from the first \"{\" after ::AUDIT::RESP:: up to ::HTTPCODE::\n| parse content, \"LD '::AUDIT::RESP::' LD:resp\"\n| fieldsAdd body_from = indexOf(resp, \"{\")\n| fieldsAdd body = if(body_from >= 0, substring(resp, from: body_from), else: resp)\n| fieldsAdd body = if(contains(body, \"::HTTPCODE::\"), substring(body, from: 0, to: lastIndexOf(body, \"::HTTPCODE::\")), else: body)\n| fields timestamp, rquid, service, channel, code, error_system, error_message, body\n| sort timestamp desc\n| limit 200",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| filter outcome == \"error\"\n| parse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:CH ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n// body = from the first \"{\" after ::AUDIT::RESP:: up to ::HTTPCODE::\n| parse content, \"LD '::AUDIT::RESP::' LD:resp\"\n| fieldsAdd body_from = indexOf(resp, \"{\")\n| fieldsAdd body = if(body_from >= 0, substring(resp, from: body_from), else: resp)\n| fieldsAdd body = if(contains(body, \"::HTTPCODE::\"), substring(body, from: 0, to: lastIndexOf(body, \"::HTTPCODE::\")), else: body)\n| fields timestamp, rquid, service, CH, code, error_system, error_message, body\n| sort timestamp desc\n| limit 200",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -252,17 +261,17 @@
       "visualizationSettings": {
         "table": {
           "columnWidths": {
+            "[\"body\"]": 2188,
             "[\"channel\"]": 0,
-            "[\"error_message\"]": 0,
-            "[\"error_system\"]": 0,
+            "[\"error_message\"]": 330,
+            "[\"error_system\"]": 46,
             "[\"rquid\"]": 0,
-            "[\"timestamp\"]": 0,
-            "[\"body\"]": 2188
+            "[\"timestamp\"]": 60
           },
           "sortBy": [
             {
-              "columnId": "[\"service\"]",
-              "direction": "descending"
+              "columnId": "[\"error_message\"]",
+              "direction": "ascending"
             }
           ]
         }
@@ -278,7 +287,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"<caracterAceptacion>\")\n| summarize value = round(100.0 * countIf(contains(content, \"<caracterAceptacion>M</caracterAceptacion>\")) / count(), decimals: 2)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"<caracterAceptacion>\")\n| summarize value = round(100.0 * countIf(contains(content, \"<caracterAceptacion>M</caracterAceptacion>\")) / count(), decimals: 2)",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -297,7 +306,7 @@
           "isAvailable": true
         }
       },
-      "query": "fetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\")\n| makeTimeseries total_errors = count()",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\")\n| makeTimeseries total_errors = count()",
       "querySettings": {
         "defaultSamplingRatio": 10,
         "defaultScanLimitGbytes": 500,
@@ -365,14 +374,14 @@
     },
     "8": {
       "h": 8,
-      "w": 12,
+      "w": 15,
       "x": 0,
       "y": 12
     },
     "9": {
       "h": 8,
-      "w": 12,
-      "x": 12,
+      "w": 9,
+      "x": 15,
       "y": 12
     },
     "10": {
