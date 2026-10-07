@@ -1,0 +1,743 @@
+{
+  "version": 21,
+  "variables": [
+    {
+      "key": "Cluster",
+      "name": "Cluster",
+      "type": "csv",
+      "input": "*,accountsws,investmentsws,loansws,paymentsws,productsws,clientsws,credit-cardsws,remittancesws,acquiringws,securityws,insurancesws",
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Servicio",
+      "name": "Servicio",
+      "type": "query",
+      "input": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| filter isNotNull(service)\n| summarize responses = count(), by: { service }\n| fields service\n| append [data record(service = \"*\")]\n| sort service asc",
+      "multiple": false,
+      "defaultValue": "*",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Canal",
+      "name": "Canal",
+      "type": "text",
+      "defaultValue": "*",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Rquid",
+      "name": "Rquid",
+      "type": "text",
+      "defaultValue": "sin-rquid",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    }
+  ],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "## Nexus\nCluster: uno, varios o `*` = todos. Servicio: `*` = todos (no aplica a LATENCIA ADAPTADOR, ADAPTADORES EN USO ni LATENCIA POR ADAPTADOR). Canal: `37`, varios `37,01`, `*` = todos (no aplica a ERROR LOGS ni RESUMEN ERRORES POR CANAL). Rquid para la sección 4."
+    },
+    "1": {
+      "content": "### 2. Adaptadores (2xx OK · 412 negocio · otro error)",
+      "type": "markdown"
+    },
+    "2": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "Respuestas adaptador",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize responses = count()",
+      "visualizationSettings": {}
+    },
+    "3": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% OK (2xx)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize value = round(100.0 * countIf(outcome == \"ok_2xx\") / count(), decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "4": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% 412 (negocio)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize value = round(100.0 * countIf(outcome == \"business_412\") / count(), decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "5": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% error",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize value = round(100.0 * countIf(outcome == \"error\") / count(), decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "6": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
+      "description": "Los errores 412 son errores de negocio",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| filter isNotNull(code)\n| fieldsAdd code = toString(code)\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| makeTimeseries responses = count(), by: { code }",
+      "visualizationSettings": {}
+    },
+    "7": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERRORES ADAPTADOR POR CLUSTER",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| filter outcome == \"error\"\n| fieldsAdd cluster = concat(cluster, \"ws\")\n| makeTimeseries errors = count(), by: { cluster }",
+      "visualizationSettings": {}
+    },
+    "8": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RESPUESTAS ADAPTADOR POR SERVICIO",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:CH_a ','\"\n| parse content, \"LD '][' LD:CH_b ']'\"\n| fieldsAdd CH = coalesce(CH_a, CH_b, \"\")\n| filter $Canal == \"*\" or in(CH, splitString($Canal, \",\"))\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = count(),\n    ok_2xx = countIf(outcome == \"ok_2xx\"),\n    business_412 = countIf(outcome == \"business_412\"),\n    error = countIf(outcome == \"error\"),\n    error_4xx = countIf(outcome == \"error\" and code >= 400 and code < 500),\n    error_5xx = countIf(outcome == \"error\" and code >= 500 and code < 600),\n    unknown = countIf(outcome == \"unknown\"),\n    by: { service, CH }\n| fieldsAdd pct_error = round(100.0 * error / responses, decimals: 2)\n| sort error desc, responses desc\n| limit 200",
+      "visualizationSettings": {
+        "table": {
+          "columnWidths": {
+            "[\"service\"]": 247.58
+          },
+          "sortBy": [
+            {
+              "columnId": "[\"pct_error\"]",
+              "direction": "descending"
+            }
+          ]
+        }
+      }
+    },
+    "9": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "SUMATORIA EVENTOS APIS",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| filter isNotNull(code) and not (code >= 200 and code < 300)\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| parse content, \"LD '\\\"code\\\":\\\"' LD:error_code '\\\"'\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| summarize total = count(), by: { code, error_system, error_code, error_message, service, channel }\n| sort total desc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "10": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DE MAPEO (% sobre respuestas)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\") or (contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\"))\n| fieldsAdd is_resp = contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD 'Exception:' SPACE? INT:mapper_code\"\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = countIf(is_resp), mapping_errors = countIf(not is_resp and http_code == 400), by: { service, channel }\n| fieldsAdd pct_mapping = round(100.0 * mapping_errors / responses, decimals: 2)\n| filter mapping_errors > 0\n| sort mapping_errors desc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "11": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TIMEOUTS ADAPTADOR 504 (% sobre respuestas)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\") or (contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\"))\n| fieldsAdd is_resp = contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD 'Exception:' SPACE? INT:mapper_code\"\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize responses = countIf(is_resp), timeouts = countIf(not is_resp and mapper_code == 504), by: { service, channel }\n| fieldsAdd pct_timeout = round(100.0 * timeouts / responses, decimals: 2)\n| filter timeouts > 0\n| sort timeouts desc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "12": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "DETALLE ERRORES DE MAPEO",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'X-Name=' LD:CH_a ','\"\n| parse content, \"LD '][' LD:CH_b ']'\"\n| fieldsAdd CH = coalesce(CH_a, CH_b, \"\")\n| filter $Canal == \"*\" or in(CH, splitString($Canal, \",\"))\n// mapping errors are HttpCode 400; the Exception code can be a backend code (e.g. 1111 = connection refused, HttpCode 503)\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code == 400\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1 = args[0],\n            p2 = substring(args[1], from: 2),\n            p3 = substring(args[2], from: 2)\n| fieldsAdd field = if(contains(rule, \"para: %3\"), p3, else: p1)\n// p1 can carry raw customer data (e.g. a whole product record): show only its shape, digits as 9, max 20 chars\n| fieldsAdd p1_shape = substring(replacePattern(p1, \"DIGIT\", \"9\"), from: 0, to: 20)\n| fieldsAdd detail = replaceString(\n                       replaceString(\n                         replaceString(rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                       \"%2\", coalesce(p2, \"%2\")),\n                     \"%3\", coalesce(p3, \"%3\"))\n// lines without X-Referer have no service: the adapter tells at least where it failed\n| fieldsAdd adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| summarize total = count(), example = takeFirst(detail),\n    by: { direction, rule, field, adapter, service, CH }\n| sort total desc\n| limit 1000",
+      "visualizationSettings": {
+        "table": {
+          "columnOrder": [
+            "[\"total\"]",
+            "[\"direction\"]",
+            "[\"field\"]",
+            "[\"example\"]",
+            "[\"rule\"]",
+            "[\"adapter\"]",
+            "[\"service\"]",
+            "[\"CH\"]"
+          ]
+        }
+      }
+    },
+    "13": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RQUIDS CON ERROR 4XX/5XX",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| parse content, \"LD 'X-Name=' LD:CH_a ','\"\n| parse content, \"LD '][' LD:CH_b ']'\"\n| fieldsAdd CH = coalesce(CH_a, CH_b, \"\")\n| filter $Canal == \"*\" or in(CH, splitString($Canal, \",\"))\n| filter outcome == \"error\"\n| parse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd service = splitString(referer, \"-\")[3]\n| parse content, \"LD '\\\"code\\\":\\\"' LD:error_code '\\\"'\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n// body = from the first \"{\" after ::AUDIT::RESP:: up to ::HTTPCODE::\n| parse content, \"LD '::AUDIT::RESP::' LD:resp\"\n| fieldsAdd body_from = indexOf(resp, \"{\")\n| fieldsAdd body = if(body_from >= 0, substring(resp, from: body_from), else: resp)\n| fieldsAdd body = if(contains(body, \"::HTTPCODE::\"), substring(body, from: 0, to: lastIndexOf(body, \"::HTTPCODE::\")), else: body)\n| fields timestamp, rquid, service, CH, code, error_system, error_message, body\n| sort timestamp desc\n| limit 200",
+      "visualizationSettings": {
+        "table": {
+          "columnWidths": {
+            "[\"body\"]": 2188,
+            "[\"error_message\"]": 330,
+            "[\"error_system\"]": 46,
+            "[\"timestamp\"]": 60
+          },
+          "sortBy": [
+            {
+              "columnId": "[\"error_message\"]",
+              "direction": "ascending"
+            }
+          ]
+        }
+      }
+    },
+    "14": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "LATENCIA ADAPTADOR (p95 ms)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter contains(content, \"RSIN\")\n| parse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd adapter_ms = coalesce(ms_stratus, ms_iseries), adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| filter isNotNull(adapter_ms)\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| makeTimeseries p95_ms = percentile(adapter_ms, 95), by: { adapter }",
+      "visualizationSettings": {}
+    },
+    "15": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ADAPTADORES EN USO",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| summarize events = count(), by: { aws.log_group }\n| sort events desc",
+      "visualizationSettings": {
+        "table": {
+          "sortBy": [
+            {
+              "columnId": "[\"aws.log_group\"]",
+              "direction": "ascending"
+            }
+          ]
+        }
+      }
+    },
+    "16": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "LATENCIA POR ADAPTADOR",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter contains(content, \"RSIN\")\n| parse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd adapter_ms = coalesce(ms_stratus, ms_iseries), adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| filter isNotNull(adapter_ms)\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize calls = count(), avg_ms = avg(adapter_ms), p95_ms = percentile(adapter_ms, 95), by: { adapter }\n| sort p95_ms desc\n| limit 100",
+      "visualizationSettings": {}
+    },
+    "17": {
+      "content": "### 3. Proxy WS / ESB",
+      "type": "markdown"
+    },
+    "18": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% rechazo al canal (M)",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"<caracterAceptacion>\") or contains(content, \"<canal>\")\n| parse content, \"LD '] [' LD:rquid '][INFO'\"\n| parse content, \"LD '<Request>' LD '<canal>' LD:channel_req '</canal>'\"\n| parse content, \"LD '<Response>' LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| parse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<msgRespuesta>' LD:msg '</msgRespuesta>'\"\n| summarize channel = takeAny(channel_req), operation = takeAny(operation), result = takeAny(acceptance),\n    msg_code = takeAny(msg_code), msg = takeAny(msg), by: { rquid }\n| filter isNotNull(result) and ($Canal == \"*\" or in(channel, splitString($Canal, \",\")))\n| summarize value = round(100.0 * countIf(result == \"M\") / count(), decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "19": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERROR LOGS",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"[ERROR\")\n| makeTimeseries total_errors = count()",
+      "visualizationSettings": {}
+    },
+    "20": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RECHAZOS AL CANAL",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"<caracterAceptacion>\") or contains(content, \"<canal>\")\n| parse content, \"LD '] [' LD:rquid '][INFO'\"\n| parse content, \"LD '<Request>' LD '<canal>' LD:channel_req '</canal>'\"\n| parse content, \"LD '<Response>' LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| parse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<msgRespuesta>' LD:msg '</msgRespuesta>'\"\n| summarize channel = takeAny(channel_req), operation = takeAny(operation), result = takeAny(acceptance),\n    msg_code = takeAny(msg_code), msg = takeAny(msg), by: { rquid }\n| filter isNotNull(result) and ($Canal == \"*\" or in(channel, splitString($Canal, \",\")))\n| filter result == \"M\"\n| summarize rejections = count(), by: { channel, operation, msg_code, msg }\n| sort rejections desc\n| limit 100",
+      "visualizationSettings": {}
+    },
+    "21": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RESUMEN ERRORES POR CANAL",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"[ERROR\")\n| parse content, \"LD ' ERROR ' DATA:full_details\"\n| parse full_details, \"'[' LD:uuid '][' LD:channel_raw ']' DATA:msg_raw\"\n| fieldsAdd channel = coalesce(channel_raw, \"--\"), message = coalesce(msg_raw, full_details)\n| summarize total_errors = count(), by: { channel, message }\n| sort total_errors desc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "22": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "CONSUMO CANAL VS SERVICIO",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"BackendHttpAdapter\") and contains(content, \"RSOUT\")\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| parse content, \"LD 'INFO  [' LD:trace '] [' LD:rquid '][' LD:req_channel '][' LD:service '][' LD:backend '][' LD:log_level '][' LD:tx_phase '][' LD:phase '][' DOUBLE:time_ms ' ' LD:unit ']'\"\n| summarize consumptions = count(), avg_ms = avg(time_ms), p95_ms = percentile(time_ms, 95), by: { req_channel, service }\n| sort consumptions desc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "23": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "LATENCIA POR PASO ESB",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"[/\")\n| fieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| filter isNotNull(step_ms) and step != \"AuditLog\"\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| summarize executions = count(), avg_ms = avg(step_ms), p95_ms = percentile(step_ms, 95), by: { step }\n| sort p95_ms desc\n| limit 100",
+      "visualizationSettings": {}
+    },
+    "24": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "PASOS MÁS LENTOS POR SERVICIO",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter $Servicio == \"*\" or contains(content, $Servicio)\n| filter contains(content, \"[/\")\n| fieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| filter isNotNull(step_ms) and step != \"AuditLog\"\n| parse content, \"LD 'X-Name=' LD:channel_a ','\"\n| parse content, \"LD '][' LD:channel_b ']'\"\n| fieldsAdd channel = coalesce(channel_a, channel_b, \"\")\n| filter $Canal == \"*\" or in(channel, splitString($Canal, \",\"))\n| parse content, \"LD '[/' LD:service_path ']'\"\n| fieldsAdd service = concat(\"/\", service_path)\n| summarize executions = count(), avg_ms = avg(step_ms), p95_ms = percentile(step_ms, 95), by: { service, channel, step }\n| sort p95_ms desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "25": {
+      "content": "### 4. Traza por rquid",
+      "type": "markdown"
+    },
+    "26": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TRAZA RQUID",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and (endsWith(aws.log_group, \"-adapter\") or endsWith(aws.log_group, \"-mngr\"))\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter contains(content, $Rquid)\n| fieldsAdd group = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fields timestamp, group, content\n| sort timestamp asc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "27": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "AUDITORIAS ADAPTADOR",
+      "query": "fetch logs\n|filter dt.system.bucket ==\"logs_integracion\"\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| filter in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)\n| filter contains(content, $Rquid) and contains(content, \"AUDIT\")\n| parse content, \"LD 'X-FnctName=' LD:fnct_name ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD '::AUDIT::' LD:operation_type '::'\"\n| parse content, \"LD '::AUDIT::' DATA:audit_message\"\n| fieldsAdd adapter = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fields timestamp, fnct_name, channel, operation_type, adapter, audit_message\n| sort timestamp asc\n| limit 1000",
+      "visualizationSettings": {}
+    }
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 24,
+      "h": 1
+    },
+    "2": {
+      "x": 0,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "3": {
+      "x": 6,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "4": {
+      "x": 12,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "5": {
+      "x": 18,
+      "y": 3,
+      "w": 6,
+      "h": 4
+    },
+    "6": {
+      "x": 0,
+      "y": 7,
+      "w": 12,
+      "h": 6
+    },
+    "7": {
+      "x": 12,
+      "y": 7,
+      "w": 12,
+      "h": 6
+    },
+    "8": {
+      "x": 0,
+      "y": 13,
+      "w": 12,
+      "h": 8
+    },
+    "9": {
+      "x": 12,
+      "y": 13,
+      "w": 12,
+      "h": 8
+    },
+    "10": {
+      "x": 0,
+      "y": 21,
+      "w": 12,
+      "h": 8
+    },
+    "11": {
+      "x": 12,
+      "y": 21,
+      "w": 12,
+      "h": 8
+    },
+    "12": {
+      "x": 0,
+      "y": 29,
+      "w": 24,
+      "h": 4
+    },
+    "13": {
+      "x": 0,
+      "y": 33,
+      "w": 24,
+      "h": 8
+    },
+    "14": {
+      "x": 0,
+      "y": 41,
+      "w": 16,
+      "h": 6
+    },
+    "15": {
+      "x": 16,
+      "y": 41,
+      "w": 8,
+      "h": 6
+    },
+    "16": {
+      "x": 0,
+      "y": 47,
+      "w": 24,
+      "h": 6
+    },
+    "17": {
+      "x": 0,
+      "y": 53,
+      "w": 24,
+      "h": 1
+    },
+    "18": {
+      "x": 0,
+      "y": 54,
+      "w": 4,
+      "h": 6
+    },
+    "19": {
+      "x": 4,
+      "y": 54,
+      "w": 20,
+      "h": 6
+    },
+    "20": {
+      "x": 0,
+      "y": 60,
+      "w": 12,
+      "h": 8
+    },
+    "21": {
+      "x": 12,
+      "y": 60,
+      "w": 12,
+      "h": 8
+    },
+    "22": {
+      "x": 0,
+      "y": 68,
+      "w": 12,
+      "h": 8
+    },
+    "23": {
+      "x": 12,
+      "y": 68,
+      "w": 12,
+      "h": 8
+    },
+    "24": {
+      "x": 0,
+      "y": 76,
+      "w": 24,
+      "h": 7
+    },
+    "25": {
+      "x": 0,
+      "y": 83,
+      "w": 24,
+      "h": 1
+    },
+    "26": {
+      "x": 0,
+      "y": 84,
+      "w": 24,
+      "h": 10
+    },
+    "27": {
+      "x": 0,
+      "y": 94,
+      "w": 24,
+      "h": 6
+    }
+  },
+  "annotations": [],
+  "settings": {}
+}
