@@ -1,0 +1,870 @@
+{
+  "variables": [
+    {
+      "type": "pattern",
+      "pattern": "CLUSTER_VAR",
+      "inputType": "select",
+      "id": "Cluster",
+      "label": "Cluster",
+      "defaultValue": ".*",
+      "visible": true,
+      "inputPopulationType": "custom",
+      "values": [
+        {
+          "value": ".*",
+          "label": "Todos"
+        },
+        {
+          "value": "accountsws",
+          "label": "accountsws"
+        },
+        {
+          "value": "paymentsws",
+          "label": "paymentsws"
+        },
+        {
+          "value": "credit-?cardsws",
+          "label": "credit-cardsws"
+        },
+        {
+          "value": "investmentsws",
+          "label": "investmentsws"
+        },
+        {
+          "value": "productsws",
+          "label": "productsws"
+        },
+        {
+          "value": "loansws",
+          "label": "loansws"
+        },
+        {
+          "value": "clientsws",
+          "label": "clientsws"
+        },
+        {
+          "value": "remittancesws",
+          "label": "remittancesws"
+        },
+        {
+          "value": "acquiringws",
+          "label": "acquiringws"
+        },
+        {
+          "value": "securityws",
+          "label": "securityws"
+        },
+        {
+          "value": "insurancesws",
+          "label": "insurancesws"
+        }
+      ]
+    },
+    {
+      "type": "pattern",
+      "pattern": "SERVICE_VAR",
+      "inputType": "input",
+      "id": "Servicio",
+      "label": "Servicio (.* = todos)",
+      "defaultValue": ".*",
+      "visible": true
+    },
+    {
+      "type": "pattern",
+      "pattern": "CANAL_VAR",
+      "inputType": "input",
+      "id": "Canal",
+      "label": "Canal (.* = todos)",
+      "defaultValue": ".*",
+      "visible": true
+    },
+    {
+      "type": "pattern",
+      "pattern": "RQUID_VAR",
+      "inputType": "input",
+      "id": "Rquid",
+      "label": "Rquid",
+      "defaultValue": "sin-rquid",
+      "visible": true
+    }
+  ],
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 3,
+      "properties": {
+        "markdown": "## Nexus\nFiltros (regex): **Cluster** (`Todos` = sin filtro) · **Servicio** sin `/ESBService/` (ej `ConsultaBolsillos`, varios `A|B`, `.*` = todos) · **Canal** (ej `37`, varios `37|01`, `.*` = todos; no aplica a API Gateway, ERROR LOGS ni RESUMEN ERRORES) · **Rquid** solo para la fila 4.\nSOAP responde HTTP 200 aunque falle: el error real está en la fila 2. Infra ECS y el gráfico de 504 por minuto no tienen filtros (métricas globales)."
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 3,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "### 1. API Gateway"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 4,
+      "width": 5,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats count(*) as cantidadReq",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "TotalRequest"
+      }
+    },
+    {
+      "type": "log",
+      "x": 5,
+      "y": 4,
+      "width": 5,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats (sum(status >= 200 AND status < 300) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% HTTP 2XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 10,
+      "y": 4,
+      "width": 5,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats (sum(status >= 400 AND status < 500) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% HTTP 4XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 15,
+      "y": 4,
+      "width": 5,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats (sum(status >= 500) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% HTTP 5XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 20,
+      "y": 4,
+      "width": 4,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| stats pct(responseLatency, 95) as pct95",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "PCT95 latencia (ms)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, @message, @logStream, @log,responseLatency,status\n|display  status >= 200 AND status < 300 as code200 ,status >=500 as code500 , status >=400 and status <500 as code400 \n|filter isPresent(status)\n|stats sum( code200) AS code2xx , sum(code500) as code5xx , sum (code400) as code4xx, COUNT(*) AS totalRQ  by datefloor (@timestamp , 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "STATUS CODE API"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @timestamp, @message, @logStream, @log,responseLatency,status\n|filter isPresent(responseLatency)\n|stats pct (responseLatency,95) AS PCT95 , avg (responseLatency) as promedio  by datefloor (@timestamp , 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "LATENCIA API"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 14,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @log, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| parse @log /api_(?<API>[A-Za-z0-9-]+)$/\n| stats count(*) as cantidadReq,\n    sum(status < 300) as status2xx,\n    sum(status >= 400 and status < 500) as status4xx,\n    sum(status >= 500) as status5xx,\n    (sum(status >= 400) * 100 / count(*)) as pctErrorHttp,\n    avg(responseLatency) as LatenciaPromedio,\n    pct(responseLatency, 95) as LatenciaPct95\n  by API\n| sort pctErrorHttp desc, cantidadReq desc\n| limit 100",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "RESUMEN POR API"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 20,
+      "width": 24,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/api/api_accountsws\" | SOURCE \"/aws/api/api_acquiringws\" | SOURCE \"/aws/api/api_clientsws\" | SOURCE \"/aws/api/api_creditcardsws\" | SOURCE \"/aws/api/api_insurancesws\" | SOURCE \"/aws/api/api_investmentsws\" | SOURCE \"/aws/api/api_loansws\" | SOURCE \"/aws/api/api_paymentsws\" | SOURCE \"/aws/api/api_productsws\" | SOURCE \"/aws/api/api_remittancesws\" | SOURCE \"/aws/api/api_securityws\" |\nfilter @log like /api_(CLUSTER_VAR)$/ and resourcePath like /(SERVICE_VAR)/\n| fields @log, resourcePath, responseLatency, status, httpMethod\n| filter isPresent(httpMethod) AND isPresent(status)\n| parse @log /api_(?<API>[A-Za-z0-9-]+)$/\n| stats count(*) as cantidadReq,\n    sum(status < 300) as status2xx,\n    sum(status >= 400 and status < 500) as status4xx,\n    sum(status >= 500) as status5xx,\n    (sum(status >= 400) * 100 / count(*)) as pctErrorHttp,\n    avg(responseLatency) as LatenciaPromedio,\n    pct(responseLatency, 95) as LatenciaPct95\n  by API, resourcePath, httpMethod\n| sort status5xx desc, status4xx desc, cantidadReq desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "DETALLE POR SERVICIO"
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 28,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "### 2. Adaptadores (2xx OK · 412 negocio · otro error)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 29,
+      "width": 6,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| stats count(*) as respuestas",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "Respuestas adaptador"
+      }
+    },
+    {
+      "type": "log",
+      "x": 6,
+      "y": 29,
+      "width": 6,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(ok) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% OK (2xx)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 29,
+      "width": 6,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats (count(negocio) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% 412 (negocio)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 18,
+      "y": 29,
+      "width": 6,
+      "height": 4,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% error"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 33,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| stats count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error by datefloor(@timestamp, 1m) as fecha\n| sort fecha desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 33,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @log /\\/srv\\/(?<cluster>[a-z-]+ws)-/\n| filter codigo not like /^2/ and codigo != \"412\"\n| stats count(*) as errores by cluster, datefloor(@timestamp, 1m)\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "ERRORES ADAPTADOR POR CLUSTER"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 39,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "REQUESTS VS 504 POR MINUTO (todos los clusters)",
+        "region": "us-east-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 60,
+        "stat": "Sum",
+        "metrics": [
+          [
+            "Nexus/Adapters",
+            "AdapterResponses",
+            {
+              "label": "requests",
+              "yAxis": "left"
+            }
+          ],
+          [
+            "Nexus/Adapters",
+            "AdapterTimeouts",
+            {
+              "label": "504 (timeout backend)",
+              "yAxis": "right",
+              "color": "#d62728"
+            }
+          ]
+        ],
+        "yAxis": {
+          "left": {
+            "label": "requests / min",
+            "min": 0,
+            "showUnits": false
+          },
+          "right": {
+            "label": "504 / min",
+            "min": 0,
+            "showUnits": false
+          }
+        }
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 45,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /::HTTPCODE::(?<ok>2\\d\\d)\\b/\n| parse @message /::HTTPCODE::(?<negocio>412)\\b/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| stats count(*) as respuestas, count(ok) as ok_2xx, count(negocio) as negocio_412, (count(*) - count(ok) - count(negocio)) as error,\n    ((count(*) - count(ok) - count(negocio)) * 100 / count(*)) as pctError by servicio, canal\n| sort error desc, respuestas desc\n| limit 200",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "RESPUESTAS ADAPTADOR POR SERVICIO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 45,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/\n| stats count(*) as CantReq by codigo, sistema, errorCodigo, errorMensaje, servicio, canal\n| sort CantReq desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "SUMATORIA EVENTOS APIS"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 53,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::\\s*(?<mensaje>[^.]*[^.\\s])/\n| filter codigo != \"504\"\n| parse @message /3=(?<campo>[A-Za-z0-9_.]+)\\s*::HEAD::/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by codigo, mensaje, campo, service, channel\n| sort total desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "ERRORES DE MAPEO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 53,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/\n| parse @message /Exception:\\s*(?<codigo>\\d+)\\s*::/\n| filter codigo = \"504\"\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<service>[^-,\\]]+)/\n| parse @message /X-Name=(?<channel>[^,\\]]+)/\n| stats count(*) as total by service, channel\n| sort total desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "TIMEOUTS ADAPTADOR (504)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 61,
+      "width": 24,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"::AUDIT::RESP::\"\n| parse @message /::HTTPCODE::(?<codigo>\\d+)/\n| parse @message /X-RqUid=(?<rquid>[0-9a-f-]+)/\n| parse @message /X-Name=(?<canal>[^,\\]]+)/\n| parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<servicio>[^-,\\]]+)/\n| parse @message /\"code\":\"(?<errorCodigo>[^\"]*)\"/\n| parse @message /\"message\":\"(?<errorMensaje>[^\"]*)\"/\n| parse @message /\"system\":\"(?<sistema>[^\"]*)\"/\n| filter codigo not like /^2/ and codigo != \"412\"\n| display @timestamp, rquid, servicio, canal, codigo, sistema, errorMensaje\n| sort @timestamp desc\n| limit 200",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "RQUIDS CON ERROR 4XX/5XX"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 69,
+      "width": 16,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @logStream, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats pct(TiempoAdp , 95) as pct95 by Adaptador, datefloor (@timestamp,1m)\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "LATENCIA  ADAPTADOR"
+      }
+    },
+    {
+      "type": "log",
+      "x": 16,
+      "y": 69,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @log\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n| stats count(*) as eventos by Adaptador\n| sort eventos desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "ADAPTADORES EN USO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 75,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @log like /\\/(CLUSTER_VAR)-(stratus|iseries|postilion)-adapter$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message, @logStream, @log\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n|filter @message like \"RSIN\"\n|parse @message \"RSIN *:*,3=*\" as adaptador ,temp1,  rsinadpstratus\n|parse @message \"RSIN *:*, 1=*\" as  adaptador1 , temp , rsinloaniseris\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<Adaptador>\\S+)$/\n|display coalesce (rsinadpstratus,rsinloaniseris) as TiempoAdp, Adaptador\n|stats count(*) as llamadas, avg(TiempoAdp) as promedio, pct(TiempoAdp, 95) as pct95 by Adaptador\n| sort pct95 desc\n| limit 100",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "LATENCIA POR ADAPTADOR"
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 81,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "### 3. Proxy WS / ESB"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 82,
+      "width": 4,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<caracterAceptacion>(?<rechazo>M)<\\/caracterAceptacion>/\n| stats latest(canalReq) as canal, latest(aceptacion) as resultado, latest(rechazo) as rech by rquid\n| filter ispresent(resultado) and canal like /^(CANAL_VAR)$/\n| stats (count(rech) * 100 / count(*)) as value",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "number",
+        "title": "% rechazo al canal (M)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 4,
+      "y": 82,
+      "width": 20,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| stats COUNT(*) AS total_errors  by datefloor (@timestamp , 1m) AS fecha\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "timeSeries",
+        "title": "ERROR LOGS",
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        },
+        "fillWith": "0"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 88,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| filter @message like /<caracterAceptacion>|<canal>/\n| parse @message /\\] \\[(?<rquid>[a-f0-9\\-]{36})\\]\\[INFO/\n| parse @message /<Request>.*<canal>(?<canalReq>[^<]+)<\\/canal>/\n| parse @message /<Response>.*<nombreOperacion>(?<operacion>[^<]+)<\\/nombreOperacion>/\n| parse @message /<caracterAceptacion>(?<aceptacion>[^<]+)<\\/caracterAceptacion>/\n| parse @message /<codMsgRespuesta>(?<codMsg>[^<]+)<\\/codMsgRespuesta>/\n| parse @message /<msgRespuesta>(?<msg>[^<]+)<\\/msgRespuesta>/\n| stats latest(canalReq) as canal, latest(operacion) as nombreOperacion, latest(aceptacion) as resultado,\n    latest(codMsg) as codMsgRespuesta, latest(msg) as msgRespuesta by rquid\n| filter canal like /^(CANAL_VAR)$/ and resultado = \"M\"\n| stats count(*) as rechazos by canal, nombreOperacion, codMsgRespuesta, msgRespuesta\n| sort rechazos desc\n| limit 100",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "RECHAZOS AL CANAL"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 88,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| filter @message like \"[ERROR\"\n| parse @message \"* ERROR *\" as date, full_details\n| parse full_details \"[*][*]*\" as uuid_opcinal, canal_raw, msg_raw\n| fields if(isPresent(canal_raw), canal_raw, \"--\") as canal,\n         if(isPresent(msg_raw), msg_raw, full_details) as message\n| stats COUNT(*) AS total_errors BY canal, message\n| sort total_errors desc\n| limit 10000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "RESUMEN ERRORES POR CANAL"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 96,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| filter @message like \"BackendHttpAdapter\" and @message like \"RSOUT\"\n| parse @message \"INFO  [*] [*][*][*][*][*][*][*][* *]\" as trace, rquid, canal, servicio, backend, levellog, fasetx, fase, tiempo, unidad\n| stats count(*) as consumos, avg(tiempo) as promedioMs, pct(tiempo, 95) as pct95Ms by canal, servicio\n| sort consumos desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "CONSUMO CANAL VS SERVICIO"
+      }
+    },
+    {
+      "type": "log",
+      "x": 12,
+      "y": 96,
+      "width": 12,
+      "height": 8,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| parse @message /\\[(?<rquid>[a-f0-9\\-]+)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by Paso\n| sort pct95 desc\n| limit 100",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "LATENCIA POR PASO ESB"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 104,
+      "width": 24,
+      "height": 7,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" |\nfilter @log like /\\/(CLUSTER_VAR)-mngr$/ and @message like /(SERVICE_VAR)/\n| fields @timestamp, @message\n| parse @message /X-Name=(?<canalA>[^,\\]]+)/\n| parse @message /\\[[0-9a-f-]{36}\\]\\[(?<canalB>[^\\]]*)\\]/\n| fields coalesce(canalA, canalB, \"\") as canalSel\n| filter canalSel like /^(CANAL_VAR)$/\n| parse @message /\\[(?<rquid>[a-f0-9\\-]{36})\\]\\[(?<canal>[^\\]]*)\\].*\\[(?<servicio>\\/[^\\]]+)\\].*\\[(?<Paso>[^\\[\\]]+)\\]\\[(?<Tiempo>[^\\[\\]]+)\\]$/\n| filter ispresent(rquid) and ispresent(Paso) and ispresent(Tiempo) and Tiempo != '-' and Tiempo != 'AuditLog'\n| parse Tiempo /(?<TiempoMs>[0-9.]+)/\n| stats count(*) as ejecuciones, avg(TiempoMs) as promedio, pct(TiempoMs, 95) as pct95 by servicio, canal, Paso\n| sort pct95 desc\n| limit 50",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "PASOS MÁS LENTOS POR SERVICIO"
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 111,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "### 4. Traza por rquid (busca en todos los clusters)"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 112,
+      "width": 24,
+      "height": 10,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-mngr\" | SOURCE \"/aws/ecs/srv/acquiringws-mngr\" | SOURCE \"/aws/ecs/srv/clientsws-mngr\" | SOURCE \"/aws/ecs/srv/credit-cardsws-mngr\" | SOURCE \"/aws/ecs/srv/insurancesws-mngr\" | SOURCE \"/aws/ecs/srv/investmentsws-mngr\" | SOURCE \"/aws/ecs/srv/loansws-mngr\" | SOURCE \"/aws/ecs/srv/paymentsws-mngr\" | SOURCE \"/aws/ecs/srv/productsws-mngr\" | SOURCE \"/aws/ecs/srv/remittancesws-mngr\" | SOURCE \"/aws/ecs/srv/securityws-mngr\" | SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @message like \"RQUID_VAR\"\n| fields @timestamp, @message, @log\n| parse @log /\\/aws\\/ecs\\/srv\\/(?<grupo>\\S+)$/\n| display @timestamp, grupo, @message\n| sort @timestamp asc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "TRAZA RQUID"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 122,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "query": "SOURCE \"/aws/ecs/srv/accountsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/accountsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/acquiringws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/clientsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-postilion-adapter\" | SOURCE \"/aws/ecs/srv/credit-cardsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/insurancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/investmentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/loansws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-iseries-adapter\" | SOURCE \"/aws/ecs/srv/paymentsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/productsws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/remittancesws-stratus-adapter\" | SOURCE \"/aws/ecs/srv/securityws-stratus-adapter\" |\nfilter @message like \"RQUID_VAR\"\n| fields @timestamp, @message, @logStream, @log\n|filter @message like \"AUDIT\" \n|parse @message /RqUid=(?<rq_uid>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /requestUid=(?<rq_uid1>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /X-FnctName=(?<fnctName>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message /X-Name=(?<Name>[A-Za-z0-9-]+)[^A-Za-z0-9-]/\n|parse @message \"::AUDIT::*::\" as TipoOperacion\n|parse @message \"::AUDIT::*\" as mensaje\n|parse @log /\\/aws\\/ecs\\/srv\\/(?<adaptador>\\S+)$/\n|display  @timestamp , coalesce(rq_uid , rq_uid1) as Rquid , fnctName , Name , TipoOperacion , adaptador, mensaje\n|filter Rquid like \"RQUID_VAR\"\n| sort Rquid desc\n| limit 1000",
+        "region": "us-east-1",
+        "stacked": false,
+        "view": "table",
+        "title": "AUDITORIAS ADAPTADOR"
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 128,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "### 5. Infra ECS (sin filtros)"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 129,
+      "width": 13,
+      "height": 9,
+      "properties": {
+        "view": "bar",
+        "metrics": [
+          [
+            "ECS/ContainerInsights",
+            "MemoryUtilized",
+            "ServiceName",
+            "credit-cards-iseries-adapter",
+            "ClusterName",
+            "credit-cards-mngr"
+          ],
+          [
+            "...",
+            "payments-postillion-adapter",
+            ".",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "payments-cvv-status-mngr",
+            ".",
+            "."
+          ],
+          [
+            "...",
+            "accounts-transfer-account-mngr",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "loans-drawdown-mngr",
+            ".",
+            "loans-mngr"
+          ],
+          [
+            "...",
+            "accounts-transfer-wallet-mngr",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "loan-mngr",
+            ".",
+            "replica-mngr"
+          ],
+          [
+            "...",
+            "loans-iseries-adapter",
+            ".",
+            "loans-mngr"
+          ],
+          [
+            "...",
+            "tcp-stratus-clients-adapter",
+            ".",
+            "clients-mngr"
+          ],
+          [
+            "...",
+            "accounts-transfer-mngr",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "clients-mngr",
+            ".",
+            "clients-mngr"
+          ],
+          [
+            "...",
+            "payments-iseries-adapter",
+            ".",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "clients-assessments-mngr",
+            ".",
+            "clients-mngr"
+          ]
+        ],
+        "region": "us-east-1",
+        "title": "MemoryUtilizedFARGATE"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 13,
+      "y": 129,
+      "width": 11,
+      "height": 9,
+      "properties": {
+        "view": "bar",
+        "metrics": [
+          [
+            "ECS/ContainerInsights",
+            "CpuUtilized",
+            "ServiceName",
+            "payments-cvv-status-mngr",
+            "ClusterName",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "credit-cards-iseries-adapter",
+            ".",
+            "credit-cards-mngr"
+          ],
+          [
+            "...",
+            "accounts-transfer-mngr",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "tcp-stratus-clients-adapter",
+            ".",
+            "clients-mngr"
+          ],
+          [
+            "...",
+            "clients-profile-mngr",
+            "."
+          ],
+          [
+            "...",
+            "products-mngr",
+            ".",
+            "products-mngr"
+          ],
+          [
+            "...",
+            "tcp-stratus-products-adapter",
+            ".",
+            "."
+          ],
+          [
+            "...",
+            "loans-drawdown-mngr",
+            ".",
+            "loans-mngr"
+          ],
+          [
+            "...",
+            "payments-iseries-adapter",
+            ".",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "accounts-stratus-adapter",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "accounts-transfer-wallet-mngr",
+            ".",
+            "."
+          ],
+          [
+            "...",
+            "loans-stratus-adapter",
+            ".",
+            "loans-mngr"
+          ],
+          [
+            "...",
+            "investment-funds-stratus-adapter",
+            ".",
+            "investments-funds-mngr"
+          ],
+          [
+            "...",
+            "clients-company-mngr",
+            ".",
+            "clients-mngr"
+          ],
+          [
+            "...",
+            "payments-dynamic-cvv-mngr",
+            ".",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "accounts-transfer-account-mngr",
+            ".",
+            "accounts-mngr"
+          ],
+          [
+            "...",
+            "payments-postillion-adapter",
+            ".",
+            "payments-mngr"
+          ],
+          [
+            "...",
+            "loans-iseries-adapter",
+            ".",
+            "loans-mngr"
+          ]
+        ],
+        "region": "us-east-1",
+        "title": "cpuUtilizedFARGATE"
+      }
+    }
+  ]
+}

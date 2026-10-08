@@ -2,7 +2,7 @@
 # Lists the transactions slower than THRESHOLD_MS end to end in the mngr, with the time split between the
 # mngr itself (proxy) and the adapter it calls, plus every ESB step.
 # Self-contained on purpose (copied as a single file to machines without this repo): no lib/, no dashboard
-# JSON. The log group lists below mirror the SOURCE lines of NexusGeneral.json; keep them in sync.
+# JSON. The log group lists below mirror the SOURCE lines of cloudwatch/Nexus.json; keep them in sync.
 #   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines); empty when the mngr
 #                logged no step for the transaction (seen on adapter timeouts)
 #   adapter_ms = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid); empty if no adapter call

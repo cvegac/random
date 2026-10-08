@@ -2,7 +2,7 @@
 # Finds error transactions across the *-mngr log groups (rqid, nombreOperacion, msgRespuesta),
 # then for each rqid found, searches its detail trace across the *-mngr and *-adapter log groups
 # for X-Name. Groups the result by (msgRespuesta, X-Name, nombreOperacion) and lists which rqids
-# matched each group. Log groups come from NexusGeneral.json (see cw_groups in lib/cw.sh).
+# matched each group. Log groups come from cloudwatch/Nexus.json (see cw_groups in lib/cw.sh).
 #
 # Usage:  ./summarize_errors.sh "2026-09-23 08:00:00" "2026-09-23 09:00:00"
 #         (times are Colombia local time, UTC-5)

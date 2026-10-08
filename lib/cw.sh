@@ -18,7 +18,7 @@ REGION="${AWS_REGION:-us-east-1}"
 TZ_OFFSET="-05:00"                       # Colombia (no DST)
 TZ_SECONDS=-18000
 CW_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DASHBOARD_JSON="${DASHBOARD_JSON:-$CW_LIB_DIR/../NexusGeneral.json}"
+DASHBOARD_JSON="${DASHBOARD_JSON:-$CW_LIB_DIR/../cloudwatch/Nexus.json}"
 FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row [{field, value}...] -> {field: value}
 
 log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
@@ -30,7 +30,7 @@ to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1
 # cot_fmt <epoch> <date format>  -> that instant formatted in Colombia time, without needing a tz database
 cot_fmt()  { date -u -d "@$(($1 + TZ_SECONDS))" "+$2"; }
 
-# cw_groups api|adapter|mngr  -> the log groups of that kind used by the General dashboard, one per line.
+# cw_groups api|adapter|mngr  -> the log groups of that kind used by the Nexus dashboard, one per line.
 # The dashboard is the single source of truth, so the scripts can't drift from what the widgets query.
 cw_groups() {
   local re

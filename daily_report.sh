@@ -6,7 +6,7 @@
 # service. Every query aggregates inside CloudWatch (stats), so percentages cover 100% of the window and
 # results stay far below the 10,000-row limit even on -w/-wl. All queries are submitted at once.
 # Self-contained on purpose (copy-paste this single file). The log group lists below mirror the SOURCE
-# lines of NexusGeneral.json; when the dashboard gains or drops a log group, update them here too.
+# lines of cloudwatch/Nexus.json; when the dashboard gains or drops a log group, update them here too.
 #
 # Usage:  ./daily_report.sh                                   # yesterday 17:00 -> today 08:00 (Colombia time, UTC-5)
 #         ./daily_report.sh -w                                # weekend, run on Monday: Friday 17:00 -> today 08:00
@@ -248,7 +248,7 @@ add_query api_by_api api "$API_BASE
 | limit 100"
 
 # Per-service latency: end-to-end at the API Gateway. The service is the last resourcePath segment (the
-# NexusDetalleServicio CW dashboard filters resourcePath like "/<Service>"); the report matches it to the
+# CW Nexus dashboard filters resourcePath by the Servicio regex); the report matches it to the
 # adapter X-Referer service case-insensitively. Adapter HTTP codes give the error rate (SOAP answers 200).
 add_query api_by_service api "$API_BASE
 | parse resourcePath /(?<servicio>[^\/]+)\$/
