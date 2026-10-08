@@ -1,5 +1,5 @@
-// Custom alert (Anomaly Detection app). Replaces the CloudWatch alarm nexus-gateway-latency-p95 until the
-// gateway logs are ingested: same end-to-end idea, measured in the mngr instead of the API Gateway.
+// Custom alert (Anomaly Detection app): end-to-end transaction latency, measured in the mngr
+// (the API Gateway logs are not ingested in Dynatrace).
 // Analyzer: static threshold | condition: ABOVE | threshold: 2500 | violating samples: 3 | sliding window: 5
 //           dealerting samples: 5 | alert on missing data: off
 // p90 of the per-transaction time (sum of the mngr ESB step times, same as total_ms in

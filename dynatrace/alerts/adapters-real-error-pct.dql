@@ -1,9 +1,9 @@
-// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-adapters-real-error-pct.
+// Custom alert (Anomaly Detection app): adapters real error %.
 // Analyzer: static threshold | condition: ABOVE | threshold: 5 | violating samples: 3 | sliding window: 5
 //           dealerting samples: 5 | alert on missing data: off
 // % of adapter responses that are neither 2xx nor 412 (412 = business answer). Minutes with 10 or fewer
-// responses read as 0 so one failure on a quiet minute can't fire it (CloudWatch: >50 responses per 5 min).
-// Unlike CloudWatch, lines whose HTTPCODE can't be parsed are left out instead of counted as errors.
+// responses read as 0 so one failure on a quiet minute can't fire it.
+// Lines whose HTTPCODE can't be parsed are left out instead of counted as errors.
 fetch logs
 | filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-adapter")
 | filter contains(content, "::AUDIT::RESP::")

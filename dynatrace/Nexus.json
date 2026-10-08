@@ -47,10 +47,10 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "## Nexus\nCluster: uno, varios o `*` = todos. Servicio: `*` = todos (no aplica a LATENCIA ADAPTADOR, ADAPTADORES EN USO ni LATENCIA POR ADAPTADOR). Canal: `37`, varios `37,01`, `*` = todos (no aplica a ERROR LOGS ni RESUMEN ERRORES POR CANAL). Rquid para la sección 4."
+      "content": "## Nexus\nCluster: uno, varios o `*` = todos. Servicio: `*` = todos (no aplica a LATENCIA ADAPTADOR, ADAPTADORES EN USO ni LATENCIA POR ADAPTADOR). Canal: `37`, varios `37,01`, `*` = todos (no aplica a ERROR LOGS ni RESUMEN ERRORES POR CANAL). Rquid para la sección 3."
     },
     "1": {
-      "content": "### 2. Adaptadores (2xx OK · 412 negocio · otro error)",
+      "content": "### 1. Adaptadores (2xx OK · 412 negocio · otro error)",
       "type": "markdown"
     },
     "2": {
@@ -389,7 +389,7 @@
       "visualizationSettings": {}
     },
     "17": {
-      "content": "### 3. Proxy WS / ESB",
+      "content": "### 2. Proxy WS / ESB",
       "type": "markdown"
     },
     "18": {
@@ -526,7 +526,7 @@
       "visualizationSettings": {}
     },
     "25": {
-      "content": "### 4. Traza por rquid",
+      "content": "### 3. Traza por rquid",
       "type": "markdown"
     },
     "26": {

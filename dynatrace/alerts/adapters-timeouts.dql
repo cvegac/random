@@ -1,8 +1,8 @@
-// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-adapters-timeouts.
+// Custom alert (Anomaly Detection app): adapters backend timeouts (504).
 // Analyzer: static threshold | condition: ABOVE | threshold: 2 | violating samples: 3 | sliding window: 5
 //           dealerting samples: 5 | alert on missing data: off
-// Backend timeouts (HttpCode 504) reported by the adapters' GenericExceptionMapper. CloudWatch fired on
-// >10 per 5 min; here 3 of 5 minutes with 3 or more is the per-minute equivalent.
+// Backend timeouts (HttpCode 504) reported by the adapters' GenericExceptionMapper. Fires when
+// 3 of 5 minutes have 3 or more.
 fetch logs
 | filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-adapter")
 | filter contains(content, "GenericExceptionMapper") and contains(content, "HttpCode::")

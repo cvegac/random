@@ -1,8 +1,8 @@
-// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-adapters-backend-5xx.
+// Custom alert (Anomaly Detection app): adapters backend 5xx.
 // Analyzer: static threshold | condition: ABOVE | threshold: 1 | violating samples: 3 | sliding window: 5
 //           dealerting samples: 5 | alert on missing data: off
-// Adapter responses with HTTP 5xx from the backend, per minute. CloudWatch fired on >5 per 5 min; here 3 of
-// 5 minutes with 2 or more is the per-minute equivalent.
+// Adapter responses with HTTP 5xx from the backend, per minute. Fires when 3 of
+// 5 minutes have 2 or more.
 fetch logs
 | filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-adapter")
 | filter contains(content, "::AUDIT::RESP::")

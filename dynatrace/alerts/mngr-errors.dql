@@ -1,8 +1,8 @@
-// Custom alert (Anomaly Detection app), migrated from the CloudWatch alarm nexus-mngr-errors.
+// Custom alert (Anomaly Detection app): mngr errors.
 // Analyzer: static threshold | condition: ABOVE | threshold: 4 | violating samples: 3 | sliding window: 5
 //           dealerting samples: 5 | alert on missing data: off
-// "[ERROR" lines in the ws mngr. CloudWatch fired on >20 per 5 min; here 3 of 5 minutes with 5 or more is the
-// per-minute equivalent. Its normal level is not 0: if it fires too often, switch to the auto-adaptive analyzer.
+// "[ERROR" lines in the ws mngr. Fires when 3 of 5 minutes have 5 or more.
+// Its normal level is not 0: if it fires too often, switch to the auto-adaptive analyzer.
 fetch logs
 | filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-mngr")
 | filter contains(content, "[ERROR")
