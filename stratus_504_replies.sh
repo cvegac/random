@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# For every Stratus adapter response with HTTP 504 (backend timeout) in the window, checks whether the adapter
-# also logged "Se notifico la respuesta de stratus para la transaccion X-RqUID=<rquid>, txId=..., receiveTime=...,
-# tiempo total de espera de stratus: <n> ms" for that transaction: did Stratus answer late, or never answer?
+# For every Stratus adapter response with HTTP 504 (backend timeout) in the window, checks whether Stratus ever
+# answered that transaction: did Stratus answer late, or never answer? A reply shows up as either line:
+#   "(Thread socket <n>) [TX] Se notifico la respuesta de stratus para la transaccion X-RqUID=<rquid>, txId=<tx>, ...
+#    tiempo total de espera de stratus: <n> ms"        (adapter still waiting)
+#   "(Thread socket <n>) [TX] Se recibio respuesta stratus despues de timeout, X-RqUID=null, txId=<tx>, receiveTime=..."
+#                                                      (adapter already gave up: no rquid, only the txId)
 # Self-contained on purpose (copied as a single file to machines without this repo): no lib/.
 #
-# Step 1 lists the ::AUDIT::RESP:: ... ::HTTPCODE::504 lines (one per transaction); step 2 looks for the
-# notification of just those transactions, in batches of rquids, from 1 min before their 504 up to
+# Step 1 lists the ::AUDIT::RESP:: ... ::HTTPCODE::504 lines (one per transaction) plus the GenericExceptionMapper
+# "HttpCode:: 504 ... transactionId: <tx>" lines that carry the txId; step 2 looks for the replies of just those
+# transactions, in batches (by txId, or by rquid when the txId is unknown), from 1 min before their 504 up to
 # NOTIFY_MINUTES after it (Stratus may answer after the adapter gave up).
 #
 # Usage:  ./stratus_504_replies.sh [-c cluster] "<start>" "<end>"
@@ -14,10 +18,13 @@
 # Example: ./stratus_504_replies.sh -c loansws "2026-10-06 00:00:00" "2026-10-06 18:00:00"
 # Output: results/<name>/<name>.csv, by 504 time, where <name> = stratus504_<cluster|all>_<start>-<end>
 #   resp_time          time of the 504 (date written at the start of the message, Colombia time)
-#   stratus_replied    yes / no: whether the notification line exists for that transaction
-#   reply_time         time of the notification line
-#   stratus_wait_ms    "tiempo total de espera de stratus" from that line
+#   stratus_replied    yes / no: whether a reply line exists for that transaction
+#   reply_time         time of the reply line
+#   stratus_wait_ms    "tiempo total de espera de stratus" from a "Se notifico" line (empty for after_timeout)
 #   reply_after_504_ms reply_time - resp_time (positive = Stratus answered after the adapter gave up)
+#   tx_id              adapter transactionId (from the 504 error line)
+#   reply_kind         notified / after_timeout: which of the two reply lines was found
+#   reply_socket       socket whose receiver thread got the reply
 #
 # Requires: aws cli v2 (credentials from the environment), jq, GNU date.
 # Optional env vars: AWS_REGION, OUT_BASE (default results), DEBUG (0 = quiet, 1 = verbose [default], 2 = set -x),
@@ -171,7 +178,7 @@ OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 OUT_CSV="$OUT_DIR/${FILE_NAME}.csv"
-HEADER="trx,resp_time,adapter,service,channel,stratus_replied,reply_time,stratus_wait_ms,reply_after_504_ms,tx_id"
+HEADER="trx,resp_time,adapter,service,channel,stratus_replied,reply_time,stratus_wait_ms,reply_after_504_ms,tx_id,reply_kind,reply_socket"
 
 debug "region=$REGION window=$START..$END cluster=${CLUSTER:-all} notify_window=${NOTIFY_MINUTES}min out=$OUT_DIR"
 
@@ -190,12 +197,14 @@ MSG_TIME="
 
 log "Step 1: adapter responses with HTTP 504 in ${#LOG_GROUPS[@]} Stratus adapter log group(s)"
 q1="fields @timestamp, @message, @log
-| filter @message like \"::AUDIT::RESP::\" and @message like \"::HTTPCODE::504\"
+| filter (@message like \"::AUDIT::RESP::\" and @message like \"::HTTPCODE::504\")
+    or (@message like \"GenericExceptionMapper\" and @message like /HttpCode::\s*504::/)
 | parse @message /X-RqUid=(?<trx>[0-9a-f\-]{36})/
+| parse @message /transactionId:\s*(?<txId>[0-9]+)/
 | parse @message /X-Name=(?<xname>[^,\]]+)/
 | parse @message /X-Referer=[^-,]+-[^-,]+-[^-,]+-(?<refService>[^-,\]]+)/${MSG_TIME}
 | filter isPresent(trx)
-| display msgTs, trx, xname, refService, @log
+| display msgTs, trx, txId, xname, refService, @log
 | limit 10000"
 
 chunk=$((CHUNK_MINUTES * 60))
@@ -207,12 +216,14 @@ n_slices=${#PQ_QUERY[@]}
 log "  ${n_slices} slice(s) of ${CHUNK_MINUTES} min, up to ${MAX_PARALLEL} at a time"
 run_parallel 1_504
 
-# One row per transaction (earliest 504 if it repeats). @log is "<account>:<log group>": keep the adapter name.
-# trx<TAB>resp_ms<TAB>channel<TAB>service<TAB>adapter
+# One row per transaction (earliest 504 if it repeats), with the txId of its error line ("" if there is none).
+# @log is "<account>:<log group>": keep the adapter name.
+# trx<TAB>resp_ms<TAB>channel<TAB>service<TAB>adapter<TAB>tx_id
 for ((j = 0; j < n_slices; j++)); do jq -c "$FLAT" < "$TMP/1_504_$j.json"; done | tr -d '\r' | jq -s -r '
-  map(. + {resp: (.msgTs | tonumber)}) | group_by(.trx) | map(min_by(.resp)) | sort_by(.resp) | .[]
+  map(. + {resp: (.msgTs | tonumber)}) | group_by(.trx)
+  | map(min_by(.resp) + {txId: ((map(.txId // empty) | .[0]) // "")}) | sort_by(.resp) | .[]
   | [.trx, .resp, (.xname // ""), (.refService // ""),
-     ((.["@log"] // "") | sub("^[0-9]+:"; "") | ltrimstr("/aws/ecs/srv/"))] | @tsv' > "$TMP/1_504.tsv"
+     ((.["@log"] // "") | sub("^[0-9]+:"; "") | ltrimstr("/aws/ecs/srv/")), .txId] | @tsv' > "$TMP/1_504.tsv"
 
 n504=$(awk 'END{print NR}' "$TMP/1_504.tsv")
 log "  -> $n504 transaction(s) with 504"
@@ -220,24 +231,28 @@ log "  -> $n504 transaction(s) with 504"
 
 # ---------------------------------------------------------------- step 2: the Stratus notifications
 
-log "Step 2: \"Se notifico la respuesta de stratus\" for those transactions (up to ${NOTIFY_MINUTES} min after the 504)"
+log "Step 2: Stratus replies for those transactions (up to ${NOTIFY_MINUTES} min after the 504)"
 # Batches of transactions close in time; each scans [first 504 - 60 s, last 504 + NOTIFY_MINUTES], never past now.
-# Lines: <start epoch>\t<end epoch>\t<trx|trx|...>
+# A late reply has X-RqUID=null, so each transaction is matched by "txId=<tx>," (by rquid if its txId is unknown).
+# Lines: <start epoch>\t<end epoch>\t<txId=1,|txId=2,|rquid|...>
 jq -R -s -r --argjson n "$BATCH_SIZE" --argjson after "$((NOTIFY_MINUTES * 60))" --argjson now "$(date +%s)" '
-  split("\n") | map(select(length > 0) | split("\t") | {trx: .[0], resp: (.[1] | tonumber)})
+  split("\n") | map(select(length > 0) | split("\t") | {trx: .[0], resp: (.[1] | tonumber), txId: (.[5] // "")})
   | [range(0; length; $n) as $i | .[$i:$i + $n]] | .[]
   | [((map(.resp) | min) / 1000 | floor - 60), ([(map(.resp) | max) / 1000 | ceil + $after, $now] | min),
-     (map(.trx) | join("|"))]
+     (map(if .txId != "" then "txId=\(.txId)," else .trx end) | join("|"))]
   | @tsv' < "$TMP/1_504.tsv" | tr -d '\r' > "$TMP/2_batches.tsv"
 
 while IFS=$'\t' read -r s e regex; do
-  PQ_QUERY+=("fields @timestamp, @message
-| filter @message like \"Se notifico la respuesta de stratus\" and @message like /${regex}/
+  PQ_QUERY+=("fields @timestamp, @message, @log
+| filter (@message like \"Se notifico la respuesta de stratus\" or @message like \"Se recibio respuesta stratus despues de timeout\")
+    and @message like /${regex}/
 | parse @message /X-RqU[iI][dD]=(?<trx>[0-9a-f\-]{36})/
 | parse @message /txId=(?<txId>[0-9]+)/
+| parse @message /Thread socket (?<socket>[0-9]+)/
+| parse @message /(?<late>despues de timeout)/
 | parse @message /espera de stratus:\s*(?<waitMs>[0-9]+)/${MSG_TIME}
-| filter isPresent(trx)
-| display msgTs, trx, txId, waitMs
+| filter isPresent(txId) or isPresent(trx)
+| display msgTs, trx, txId, socket, late, waitMs, @log
 | limit 10000")
   PQ_START+=("$s") PQ_END+=("$e")
 done < "$TMP/2_batches.tsv"
@@ -250,24 +265,31 @@ for ((j = 0; j < n_batches; j++)); do jq -c "$FLAT" < "$TMP/2_reply_$j.json"; do
 
 log "Step 3: building $OUT_CSV"
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
-          | {trx: .[0], resp: (.[1] | tonumber), channel: .[2], service: .[3], adapter: .[4]})' \
+          | {trx: .[0], resp: (.[1] | tonumber), channel: .[2], service: .[3], adapter: .[4], txId: (.[5] // "")})' \
   < "$TMP/1_504.tsv" > "$TMP/504.json"
 jq -s '.' < "$TMP/2_replies.ndjson" > "$TMP/replies.json"
 
+# Replies are keyed by adapter + txId (txIds are only unique per adapter), and by rquid for "Se notifico" lines.
 cat "$TMP/504.json" "$TMP/replies.json" | jq -s -r --arg header "$HEADER" --argjson tz "$TZ_SECONDS" '
   # epoch ms -> "YYYY-MM-DD HH:MM:SS.mmm" in Colombia time
   def local_time: ((. / 1000 | floor) + $tz | strftime("%Y-%m-%d %H:%M:%S")) + "." + ("00\(. % 1000)" | .[-3:]);
-  (.[1] | map(. + {ts: (.msgTs | tonumber)}) | group_by(.trx) | map({key: .[0].trx, value: min_by(.ts)})
-   | from_entries) as $reply
+  def first_by(k): map(select(k != null and k != "")) | group_by(k) | map({key: (.[0] | k), value: min_by(.ts)})
+                   | from_entries;
+  (.[1] | map(. + {ts: (.msgTs | tonumber),
+                   adapter: ((.["@log"] // "") | sub("^[0-9]+:"; "") | ltrimstr("/aws/ecs/srv/"))})) as $replies
+  | ($replies | first_by(if .txId then "\(.adapter)|\(.txId)" else null end)) as $byTx
+  | ($replies | first_by(.trx)) as $byTrx
   | ($header | split(",")),
-    (.[0][] | $reply[.trx] as $r
+    (.[0][] | ((if .txId != "" then $byTx["\(.adapter)|\(.txId)"] else null end) // $byTrx[.trx]) as $r
      | [ .trx, (.resp | local_time), .adapter, .service, .channel,
          (if $r == null then "no" else "yes" end),
          (if $r == null then "" else ($r.ts | local_time) end),
          (if $r == null then "" else ($r.waitMs // "" | tonumber? // "") end),
          (if $r == null then "" else $r.ts - .resp end),
-         (if $r == null then "" else ($r.txId // "") end) ])
+         (if .txId != "" then .txId elif $r == null then "" else ($r.txId // "") end),
+         (if $r == null then "" elif $r.late then "after_timeout" else "notified" end),
+         (if $r == null then "" else ($r.socket // "") end) ])
   | @csv' | tr -d '\r' > "$OUT_CSV"
 
 replied=$(awk -F'","' 'NR > 1 && $6 == "yes"' "$OUT_CSV" | awk 'END{print NR}')
-log "Done -> $OUT_CSV: $n504 transaction(s) with 504, $replied with the Stratus notification, $((n504 - replied)) without"
+log "Done -> $OUT_CSV: $n504 transaction(s) with 504, $replied with a Stratus reply, $((n504 - replied)) without"
