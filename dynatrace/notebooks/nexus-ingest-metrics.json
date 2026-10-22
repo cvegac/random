@@ -1,0 +1,318 @@
+{
+  "version": "5",
+  "defaultTimeframe": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "sections": [
+    {
+      "id": "71d8f233-303f-446d-8061-dbd3f685ef7c",
+      "type": "markdown",
+      "markdown": "# Nexus · Métricas desde la ingesta\n\n**Objetivo:** que el tablero general de Nexus se arme con **métricas generadas al ingestar** y no leyendo logs crudos,\npara que aguante **~30 millones de transacciones por día**.\n\n**¿Por qué?** Un tile sobre logs escanea todas las líneas del rango cada vez que se abre: el costo y el tiempo\ncrecen con el tráfico. Una métrica se calcula una sola vez, cuando entra la línea, y consultarla cuesta lo mismo\ncon 30 mil o con 30 millones de transacciones.\n\n**Cómo usar este notebook:** las secciones ✅ corren hoy (miden el volumen actual). Las ⏳ son los tiles del\ntablero de métricas y devuelven resultados cuando la métrica exista.\n\n> 🔗 **COMPARTIDO con «Nexus · Logs desde la ingesta».** Las secciones marcadas con 🔗 son idénticas en los dos notebooks:\n> los dos se apoyan en los mismos procesadores de OpenPipeline. Si cambian, cambian en los dos."
+    },
+    {
+      "id": "c0ac59e2-e690-48de-9246-a52d0e490513",
+      "type": "markdown",
+      "markdown": "## ✅ 1. Cuánto pesa hoy y cuánto pesaría con 30M tx/día"
+    },
+    {
+      "id": "783ac272-a6af-4416-b2ee-c54d84dabc06",
+      "type": "dql",
+      "showTitle": true,
+      "title": "✅ Proyección a 30M tx/día (última hora)",
+      "state": {
+        "input": {
+          "value": "// lines and characters per transaction today (one ::AUDIT::RESP:: line per transaction), projected to 30M tx/day.\n// stringLength counts characters, close to bytes for this ASCII-heavy content. Only ECS logs (API Gateway logs are not ingested).\nfetch logs\n| filter dt.system.bucket == \"logs_integracion\" and startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| summarize lines = count(), chars = sum(stringLength(content)), tx = countIf(contains(content, \"::AUDIT::RESP::\"))\n| fieldsAdd lines_per_tx = round(toDouble(lines) / tx, decimals: 1),\n            bytes_per_tx = round(toDouble(chars) / tx, decimals: 0)\n| fieldsAdd lines_per_day_at_30m = round(lines_per_tx * 30000000.0, decimals: 0),\n            gb_per_day_at_30m = round(bytes_per_tx * 30000000.0 / 1000000000.0, decimals: 1)"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "63aed9e9-177a-4459-9e09-b8f76659461c",
+      "type": "dql",
+      "showTitle": true,
+      "title": "✅ Volumen por cluster (última hora, extrapolado a 24 h al ritmo actual)",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter dt.system.bucket == \"logs_integracion\" and startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| summarize lines = count(), chars = sum(stringLength(content)), tx = countIf(contains(content, \"::AUDIT::RESP::\")), by: { cluster }\n| fieldsAdd gb_per_day_now = round(chars * 24 / 1000000000.0, decimals: 2)\n| sort chars desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "d0b981cc-710d-4945-a5ba-e7a11bf02e5c",
+      "type": "markdown",
+      "markdown": "**Cómo leerlo:** si un tile del tablero escanea `gb_per_day_at_30m` GB para mostrar \"último día\", y el tablero\ntiene ~30 tiles, abrirlo una vez escanea ~30 veces eso. Ese es el número a comparar con el costo de consulta del contrato."
+    },
+    {
+      "id": "b8b6ca7b-fbc5-449a-b6c9-04a38189ac11",
+      "type": "markdown",
+      "markdown": "## 🔗 Base común: atributos `nexus.*` agregados en la ingesta\n\nHoy cada tile hace `parse content` sobre **cada línea, cada vez que se abre el tablero**. La propuesta es parsear\n**una sola vez, al ingestar**, y guardar el resultado como atributos de la línea. Sobre esos atributos se\nconstruye todo lo demás: las métricas (notebook de métricas) y la búsqueda de logs (notebook de logs).\n\n| Atributo | Ejemplo | De dónde sale |\n|---|---|---|\n| `nexus.cluster` | `accountsws` | `aws.log_group` |\n| `nexus.layer` | `adapter` / `mngr` | `aws.log_group` |\n| `nexus.component` | `accountsws-stratus-adapter` | `aws.log_group` |\n| `nexus.service` | `ConsultaBolsillos` | adapter: `X-Referer`; mngr: `/ESBService/<Servicio>` |\n| `nexus.channel` | `37` | adapter: `X-Name` |\n| `nexus.rquid` | uuid | adapter: `X-RqUid`; mngr: `[rquid]` |\n| `nexus.kind` | `audit_resp`, `mapping_error`, `timeout_504`, `technical_error`, `backend_time`, `esb_step`, `mngr_error`, `soap_resp`, `mngr_trace` | tipo de línea |\n| `nexus.http_code` / `nexus.outcome` | `412` / `business_412` | `::HTTPCODE::` (2xx = `ok_2xx`, 412 = `business_412`, otro = `error`, sin código = `unknown`) |\n| `nexus.duration_ms` / `nexus.latency_bucket` | `35` / `0-100ms` | `RSIN` del adaptador; paso del ESB |\n| `nexus.mapping.direction` / `.rule` / `.field` | `REQUEST` / `El atributo %1 …` / `valSecuencial` | `GenericExceptionMapper` HttpCode 400 |\n| `nexus.esb.step` | `BackendHttpAdapter` | paso del ESB |\n| `nexus.acceptance` / `nexus.soap.msg_code` | `M` / código | respuesta SOAP al canal |\n\n**Regla de oro:** nunca se guarda como atributo un dato del cliente (documento, cuenta, valores de `1=`/`2=`)."
+    },
+    {
+      "id": "11f75875-b106-4987-9df7-461982cfdae8",
+      "type": "markdown",
+      "markdown": "## 🔗 Base común: procesadores de OpenPipeline (Logs → pipeline `nexus`)\n\n**Dónde:** Settings → Process and contextualize → OpenPipeline → Logs. Crear un pipeline `nexus` y una\n*dynamic route* con la condición:\n\n```\nstartsWith(aws.log_group, \"/aws/ecs/srv/\") and (endsWith(aws.log_group, \"-adapter\") or endsWith(aws.log_group, \"-mngr\"))\n```\n\nEn la etapa **Processing**, un procesador DQL por tipo de línea, **en este orden** (los de abajo pisan\n`nexus.kind` de los de arriba). Cada procesador tiene su *matching condition* y su script.\n⚠️ No probados en el tenant: el procesador DQL acepta un subconjunto de DQL (`parse`, `fieldsAdd`,\n`fieldsRemove`…). Validarlos con la vista previa del procesador sobre líneas reales antes de activar.\n\n**1. Contexto común** — condición: la de la ruta\n```\nparse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n```\n\n**2. Headers del adaptador** — condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::HEAD::[\")`\n```\nparse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n```\n\n**3. Respuesta del adaptador** — condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::AUDIT::RESP::\")`\n```\nparse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n```\n\n**4. Excepciones del adaptador (mapeo / 504 / técnicas)** — condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")`\n```\nparse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n```\n(`nexus.mapping.field` es el nombre del campo, no su valor: los valores `1=`/`2=` pueden ser datos del cliente.)\n\n**5. Tiempo de backend (RSIN)** — condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"RSIN\")`\n```\nparse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n```\n\n**6. Trazas y pasos del ESB (mngr)** — condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[/\")`\n```\nfieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| parse content, \"LD '] [' LD:rquid ']['\"\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = rquid,\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, rquid, service_raw, is_step\n```\n\n**7. Errores del mngr** — condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[ERROR\")`\n```\nfieldsAdd nexus.kind = \"mngr_error\"\n```\n\n**8. Respuesta SOAP al canal** — condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"<caracterAceptacion>\")`\n```\nparse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code\n| fieldsRemove acceptance, msg_code\n```\n⚠️ El canal **no** viaja en la respuesta SOAP (solo en el request). En la ingesta se procesa línea por línea, sin\ncruzar request y response, así que los rechazos (M) por canal siguen saliendo de una query de logs con rango corto."
+    },
+    {
+      "id": "995b5b66-7917-403a-a205-99ffb68ce54e",
+      "type": "markdown",
+      "markdown": "## 2. Extracción de métricas (OpenPipeline → pipeline `nexus` → etapa *Metric extraction*)\n\nCada métrica se extrae de las líneas que matchean su condición, con los atributos `nexus.*` como dimensiones.\nLa clave de las métricas extraídas de logs empieza con `log.`.\n\n| Métrica | Tipo | Condición | Dimensiones | Reemplaza en el tablero |\n|---|---|---|---|---|\n| `log.nexus.adapter.responses` | counter | `nexus.kind == \"audit_resp\"` | cluster, service, channel, outcome, http_code | KPIs, respuestas en el tiempo, % error por servicio/canal |\n| `log.nexus.adapter.mapping_errors` | counter | `nexus.kind == \"mapping_error\"` | cluster, service, channel, mapping.direction, mapping.field | ERRORES DE MAPEO (conteos) |\n| `log.nexus.adapter.timeouts` | counter | `nexus.kind == \"timeout_504\"` | cluster, service, channel | TIMEOUTS 504 |\n| `log.nexus.adapter.backend_ms` | value (`nexus.duration_ms`) | `nexus.kind == \"backend_time\"` | cluster, component | LATENCIA ADAPTADOR |\n| `log.nexus.adapter.backend_calls` | counter | `nexus.kind == \"backend_time\"` | cluster, component, latency_bucket | distribución de latencia (reemplazo del p95) |\n| `log.nexus.mngr.errors` | counter | `nexus.kind == \"mngr_error\"` | cluster, service | ERROR LOGS |\n| `log.nexus.mngr.soap_responses` | counter | `nexus.kind == \"soap_resp\"` | cluster, acceptance, soap.msg_code | % rechazo al canal (M) |\n| `log.nexus.esb.step_ms` | value (`nexus.duration_ms`) | `nexus.kind == \"esb_step\"` | cluster, service, esb.step | LATENCIA POR PASO ESB |\n\n**Reglas de cardinalidad (lo que más cuesta en métricas):**\n- ❌ **Nunca** `nexus.rquid` ni valores del cliente como dimensión: serían millones de series.\n- ✅ cluster × servicio × canal × resultado está bien (cientos o miles de series).\n- Cada combinación distinta de dimensiones es una serie que se cobra: antes de sumar una dimensión, preguntar si alguien la va a filtrar.\n\n**p95:** una métrica de valor da promedio, mínimo, máximo, suma y conteo, pero no garantiza percentiles.\nPor eso `backend_calls` lleva `nexus.latency_bucket`: \"qué % de llamadas tarda más de 1 s\" responde lo mismo que un p95\npara alertar.\n\n**Qué queda en logs (con rango corto):** el **ejemplo** del error de mapeo, los rquids con error, la traza por rquid y\nlos rechazos por canal. Eso es el detalle de cada tablero por cluster, no el general (ver notebook de logs)."
+    },
+    {
+      "id": "d1656958-059e-4d87-9aeb-8da67baf9deb",
+      "type": "markdown",
+      "markdown": "## ⏳ 3. Tiles del tablero general de métricas (corren cuando existan las métricas)"
+    },
+    {
+      "id": "3766c312-ef2c-4797-b278-e713ef6520ab",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Respuestas del adaptador por resultado",
+      "state": {
+        "input": {
+          "value": "timeseries responses = sum(log.nexus.adapter.responses), by: { nexus.outcome }, interval: 1m"
+        },
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "autoSelectVisualization": false
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "558f89cb-0df6-4b28-8a5c-58a61d7c0bad",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ % error por cluster",
+      "state": {
+        "input": {
+          "value": "timeseries r = sum(log.nexus.adapter.responses), by: { nexus.cluster, nexus.outcome }\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(nexus.outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(nexus.outcome == \"business_412\", n, else: 0)), by: { nexus.cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "89d5bf9b-c24c-4386-8c53-2cccc52fe1e9",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Top servicios con error (con canal)",
+      "state": {
+        "input": {
+          "value": "timeseries r = sum(log.nexus.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(nexus.outcome == \"error\", n, else: 0)),\n    by: { nexus.cluster, nexus.service, nexus.channel }\n| filter errors > 0\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort errors desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "f588d839-d996-4a97-bbc3-742b6b497a60",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Errores de mapeo por servicio y campo",
+      "state": {
+        "input": {
+          "value": "timeseries m = sum(log.nexus.adapter.mapping_errors), by: { nexus.cluster, nexus.service, nexus.mapping.direction, nexus.mapping.field }\n| fieldsAdd total = arraySum(m)\n| fields nexus.cluster, nexus.service, nexus.mapping.direction, nexus.mapping.field, total\n| sort total desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "f2ab5c8f-71fa-4392-9ca1-2b0186fcb0c1",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Timeouts 504 por minuto",
+      "state": {
+        "input": {
+          "value": "timeseries timeouts = sum(log.nexus.adapter.timeouts), by: { nexus.cluster }, interval: 1m"
+        },
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "autoSelectVisualization": false
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "20c27063-d4fb-497e-92c4-7e8fd3953f81",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Latencia de backend por adaptador",
+      "state": {
+        "input": {
+          "value": "timeseries avg_ms = avg(log.nexus.adapter.backend_ms), max_ms = max(log.nexus.adapter.backend_ms), by: { nexus.component }, interval: 1m"
+        },
+        "visualization": "lineChart",
+        "visualizationSettings": {
+          "autoSelectVisualization": false
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "9a419f91-6c62-416d-946d-5023e9d36fb3",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ % llamadas al backend de más de 1 s",
+      "state": {
+        "input": {
+          "value": "timeseries c = sum(log.nexus.adapter.backend_calls), by: { nexus.component, nexus.latency_bucket }\n| fieldsAdd n = arraySum(c)\n| summarize total = sum(n), slow = sum(if(in(nexus.latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)), by: { nexus.component }\n| fieldsAdd pct_slow = round(100.0 * slow / total, decimals: 2)\n| sort pct_slow desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "6ffc85c9-3654-4c3c-abbc-e027de8205c3",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ % rechazo al canal (M) por cluster",
+      "state": {
+        "input": {
+          "value": "timeseries s = sum(log.nexus.mngr.soap_responses), by: { nexus.cluster, nexus.acceptance }\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), rejected = sum(if(nexus.acceptance == \"M\", n, else: 0)), by: { nexus.cluster }\n| fieldsAdd pct_rejected = round(100.0 * rejected / total, decimals: 2)\n| sort pct_rejected desc"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "76401516-904f-4383-8a2f-a4a236e46356",
+      "type": "dql",
+      "showTitle": true,
+      "title": "⏳ Pasos del ESB más lentos",
+      "state": {
+        "input": {
+          "value": "timeseries avg_ms = avg(log.nexus.esb.step_ms), by: { nexus.service, nexus.esb.step }, interval: 1h\n| fieldsAdd avg_ms = arrayAvg(avg_ms)\n| sort avg_ms desc\n| limit 20"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "ccfcf53d-b0f5-4834-a194-339d7a109ed0",
+      "type": "markdown",
+      "markdown": "## 4. Validación: la métrica tiene que dar lo mismo que los logs\n\nAntes de pasar el tablero general a métricas, comparar en la misma ventana la sección de abajo (logs, hoy) con\n\"⏳ Respuestas del adaptador por resultado\" sumada. Si difieren más de ~1 %, revisar la condición o el procesador 3."
+    },
+    {
+      "id": "b886ca51-3bac-45b5-9c27-f7518b741bcb",
+      "type": "dql",
+      "showTitle": true,
+      "title": "✅ Respuestas del adaptador por resultado, desde logs (para comparar)",
+      "state": {
+        "input": {
+          "value": "fetch logs\n| filter dt.system.bucket == \"logs_integracion\" and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize responses = count(), by: { outcome }"
+        },
+        "visualization": "table",
+        "visualizationSettings": {
+          "autoSelectVisualization": true
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        }
+      }
+    },
+    {
+      "id": "c42611f8-50c3-457f-b788-4a9f3133e0d9",
+      "type": "markdown",
+      "markdown": "## 5. Plan sugerido\n\n1. **Quién:** alguien con permiso de administrar OpenPipeline en el tenant.\n2. **Piloto:** procesadores 1–3 y la métrica `log.nexus.adapter.responses`, primero para un cluster\n   (agregar `and contains(aws.log_group, \"/productsws-\")` a la ruta); validar con la sección 4.\n3. **Resto:** procesadores 4–8 y las demás métricas, para todos los clusters.\n4. **Tablero general:** pasar sus tiles a las queries ⏳ de este notebook (rango 24 h / 7 días sin problema).\n5. **Tableros por cluster:** quedan sobre logs, para el detalle, con rango corto (ver «Nexus · Logs desde la ingesta»).\n\n> 🔗 **COMPARTIDO con «Nexus · Logs desde la ingesta».** Las secciones marcadas con 🔗 son idénticas en los dos notebooks:\n> los dos se apoyan en los mismos procesadores de OpenPipeline. Si cambian, cambian en los dos."
+    }
+  ]
+}
