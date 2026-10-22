@@ -175,7 +175,7 @@
     {
       "id": "90788e25-f8fa-43ab-8e38-2bde98029c46",
       "type": "markdown",
-      "markdown": "## 6. Buckets (etapa Storage)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [ ] | `nexus_errores` | `matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\")` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
+      "markdown": "## 6. Buckets (etapa Storage)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [x] | `nexus_errores` | `matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\")` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
     },
     {
       "id": "d567374e-69d6-4521-b853-9490b505bf77",
@@ -645,7 +645,7 @@
     {
       "id": "6c8e21a8-8d87-4dbe-9050-6fcaeeeb0fff",
       "type": "markdown",
-      "markdown": "## 11. Plan de implementación\n\nLas fechas de entrega de cada tarea están en el plan de trabajo (nexus-ingest-plan.txt). En resumen:\n1. Preparación: línea base (sección 1), permisos de OpenPipeline y preguntas abiertas.\n2. Piloto en un cluster: ruta limitada a ese cluster, procesadores 0 a 3 y la métrica de respuestas, validados con la sección 10.\n3. Procesadores 4 a 12, drop y masking, en el mismo cluster.\n4. Todos los clusters.\n5. Resto de las métricas y su validación.\n6. Bucket de errores.\n7. Tablero general sobre métricas.\n8. Alertas nuevas y baja de las viejas.\n9. Cierre: tableros por cluster con rango corto y entrega."
+      "markdown": "## 11. Plan de implementación\n\nLas fechas de cada tarea están en el plan de trabajo (nexus-ingest-plan.txt). En resumen:\n1. Hecho el 22/10: bucket nexus_errores, ruta del pipeline, procesadores 1, 2 y 4, y la métrica de timeouts.\n2. Procesamiento completo: procesadores 0, 3 y 5 a 12, drop y masking. Entrega 26/10.\n3. Métricas restantes, validadas con la sección 10. Entrega 29/10.\n4. Tablero general sobre métricas. Entrega 30/10.\n5. Alertas nuevas y baja de las viejas. Entrega 06/11.\n6. Cierre: tableros por cluster con rango corto y entrega. Entrega 10/11."
     }
   ]
 }
