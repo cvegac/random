@@ -1,51 +1,48 @@
 PLAN DE TRABAJO - Nexus: pipeline de ingesta (OpenPipeline) para 30M tx/día
 Notebook: "Nexus · Ingesta: métricas y logs" (nexus-ingest.json)
-Inicio: 22/10/2026        Entrega final: jueves 29/10/2026
-Las secciones mencionadas son las del notebook.
+Inicio: 22/10/2026        Entrega: lunes 26/10/2026        Fecha límite: jueves 29/10/2026
+Las secciones mencionadas son las del notebook. Cada métrica o alerta se copia del notebook y se pega en
+OpenPipeline o en Anomaly Detection: es trabajo de minutos, no de días.
 
 Estado: [ ] pendiente   [x] hecho
 
 HECHO                                                       22/10
-   [x] 22/10  Bucket nexus_errores (sección 6).
-   [x] 22/10  Ruta del pipeline nexus y procesadores 0 a 12 (sección 3).
-   [x] 22/10  Métrica log.nexus.adapter.timeouts (sección 5).
+   [x] Bucket nexus_errores (sección 6).
+   [x] Ruta del pipeline nexus y procesadores 0 a 12 (sección 3).
+   [x] Métrica log.nexus.adapter.timeouts (sección 5).
 
-VIERNES 23/10 - validar el procesamiento y primeras métricas
-   [ ] Validar la métrica de timeouts contra los logs (504 del GenericExceptionMapper, misma ventana).
-   [ ] Revisar en la app Logs que los atributos nexus.* aparecen bien en todos los tipos de línea y que no hay
-       errores de procesador.
-   [ ] Drop del ruido del OneAgent (sección 4).
-   [ ] Masking de X-CustIdentNum, si seguridad ya dio el visto bueno (sección 4).
-   [ ] Enviar las preguntas abiertas (no bloquean el plan):
-       - Desarrollo: qué significa "Consumidor no coincide con el cuerpo del mensaje: N" y qué es N.
-       - Negocio: si la C de caracterAceptacion cuenta como éxito, como falla o como caso aparte.
-       - Seguridad: visto bueno para el masking de X-CustIdentNum.
-   [ ] Métricas log.nexus.adapter.responses, mapping_errors, backend_ms, backend_calls y log.nexus.mngr.errors.
+VIERNES 23/10 - mañana: configurar
+   [ ] Drop del ruido del OneAgent y masking de X-CustIdentNum, este último si seguridad ya dio el visto bueno (sección 4).
+   [ ] Las 11 métricas restantes (sección 5).
+   [ ] Enviar las preguntas abiertas a desarrollo, negocio y seguridad (no bloquean el plan).
 
-LUNES 26/10 - resto de las métricas y validación
-   [ ] Métricas soap_responses, consumer_mismatch, stratus_late_replies, stream_issues, log_lines y esb.step_ms.
-   [ ] Validar cada métrica contra los logs (sección 10) y marcar Hecho en la tabla de la sección 5.
-   [ ] Verificar que la regla de Storage manda los errores a nexus_errores (consulta "Con ingesta: errores de todos
-       los clusters", sección 8) y que la ruta cubre todos los clusters, accountsws incluido.
+VIERNES 23/10 - tarde: validar y consumir
+   [ ] Validar cada métrica contra los logs en la ventana desde que se creó (sección 10); marcar Hecho en la sección 5.
+   [ ] Validar timeouts igual, con la ventana del 22/10 en adelante.
+   [ ] Verificar la regla de Storage del bucket nexus_errores y que la ruta cubre todos los clusters.
+   [ ] Tablero general: pasar sus tiles a las consultas de la sección 7.
+   [ ] Crear las 11 alertas (sección 9) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
-MARTES 27/10 - tablero y alertas
-   [ ] Pasar los tiles del tablero general a las consultas de la sección 7 y revisarlo con rangos de 24 h y 7 días.
-   [ ] Crear las 7 alertas que reemplazan a las actuales y las 4 nuevas (sección 9), y el Workflow de notificaciones.
-
-MIÉRCOLES 28/10 - alertas nuevas y viejas en paralelo
-   [ ] Comparar lo que disparan las alertas nuevas con las viejas y ajustar los umbrales.
-   [ ] Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
-
-JUEVES 29/10 - cierre (entrega final)
+LUNES 26/10 - ajustar y entregar
+   [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
-   [ ] Revisar el costo de ingesta y procesamiento con los días que haya de datos.
+   [ ] Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
+   [ ] Revisar el costo de ingesta y procesamiento con los días de datos que haya.
    [ ] Actualizar el notebook (columnas Hecho) y entregar.
 
+DESPUÉS DE LA ENTREGA
+   [ ] Pasar la alerta de caída de tráfico de umbral fijo a línea base estacional cuando la métrica tenga
+       algunas semanas de historia.
+
+POR QUÉ HAY QUE ESPERAR EN DOS PUNTOS
+- Las métricas empiezan a contar cuando se crean, no tienen historia hacia atrás: para validarlas hace falta
+  una o dos horas de datos después de crearlas, por eso la validación va a la tarde.
+- Los umbrales de las alertas se ajustan viendo tráfico real: el fin de semana con las alertas nuevas y viejas
+  prendidas a la vez da esa comparación sin quedarse sin alertas.
+
 DEPENDENCIAS Y RIESGOS
-- Si alguna métrica no pasa la validación, se corrige el mismo día; las alertas que dependen de ella se crean
-  cuando quede validada.
-- Las alertas nuevas conviven con las viejas el 27 y el 28/10. Si el 29/10 alguna métrica no está validada o la
-  alerta nueva dispara de más, dejar activa la vieja de esa alerta y anotarlo.
-- El masking depende del visto bueno de seguridad; si no llega a tiempo, queda pendiente y no frena la entrega.
+- Si alguna métrica no pasa la validación, se corrige y su alerta se crea cuando quede validada; esa alerta
+  vieja no se apaga el lunes.
+- El masking depende del visto bueno de seguridad; si no llega, queda pendiente y no frena la entrega.
 - Las preguntas a desarrollo y negocio pueden quedar abiertas: la C se muestra aparte y el valor de "Consumidor
   no coincide" queda como atributo, sin usarse como dimensión.
