@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Generates one Dynatrace dashboard per Nexus cluster from a template dashboard JSON.
 #
-#   ./build_cluster_dashboards.sh                      # dynatrace/Nexus.json -> results/dynatrace_clusters/
+#   ./build_cluster_dashboards.sh                      # ../Dashboards/Nexus.json -> results/dynatrace_clusters/
 #   ./build_cluster_dashboards.sh -t export.json       # another template (e.g. a fresh export from the tenant)
 #   ./build_cluster_dashboards.sh -o out_dir           # another output folder
 #
 # The template is the all-clusters Nexus dashboard: it must have the multi-select `Cluster` variable, whose
-# values (minus "*") are the clusters to build. Default: dynatrace/Nexus.json next to this script.
+# values (minus "*") are the clusters to build. Default: ../Dashboards/Nexus.json relative to this script
+# (work layout: Dynatrace/Scripts/<this script> + Dynatrace/Dashboards/Nexus.json); in this repo, where the
+# script sits at the root, it falls back to dynatrace/Nexus.json.
 # For each cluster it writes <out_dir>/Nexus-<cluster>.json:
 #   - the Cluster variable is removed and every `$Cluster` filter is fixed to that cluster
 #     (also inside the Servicio/Canal query variables, so their lists only show that cluster)
@@ -20,7 +22,11 @@ set -euo pipefail
 die() { echo "Error: $*" >&2; exit 1; }
 usage() { echo "usage: $0 [-t template.json] [-o out_dir]" >&2; exit 1; }
 
-DEFAULT_TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dynatrace/Nexus.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_TEMPLATE="$SCRIPT_DIR/../Dashboards/Nexus.json"
+if [ ! -f "$DEFAULT_TEMPLATE" ] && [ -f "$SCRIPT_DIR/dynatrace/Nexus.json" ]; then
+  DEFAULT_TEMPLATE="$SCRIPT_DIR/dynatrace/Nexus.json"   # repo layout
+fi
 
 # shellcheck disable=SC2016  # $Cluster is DQL, not shell
 FILTER='def repl($a; $b): split($a) | join($b);
