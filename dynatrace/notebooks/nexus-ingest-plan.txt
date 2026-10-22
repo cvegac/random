@@ -1,7 +1,6 @@
 PLAN DE TRABAJO - Nexus: pipeline de ingesta (OpenPipeline) para 30M tx/día
 Notebook: "Nexus · Ingesta: métricas y logs" (nexus-ingest.json)
-Inicio: 22/10/2026        Entrega final: martes 10/11/2026
-Feriado en el período: lunes 02/11.
+Inicio: 22/10/2026        Entrega final: jueves 29/10/2026
 Las secciones mencionadas son las del notebook.
 
 Estado: [ ] pendiente   [x] hecho
@@ -11,38 +10,41 @@ HECHO                                                       22/10
    [x] 22/10  Ruta del pipeline nexus y procesadores 1, 2 y 4 (sección 3).
    [x] 22/10  Métrica log.nexus.adapter.timeouts (sección 5).
 
-1. PROCESAMIENTO COMPLETO                                   Entrega: lunes 26/10
-   [ ] 23/10  Validar la métrica de timeouts contra los logs (504 del GenericExceptionMapper, misma ventana).
-   [ ] 23/10  Procesadores 0, 3 y 5 a 8, probados con la vista previa del procesador sobre líneas reales.
-   [ ] 23/10  Enviar las preguntas abiertas (no bloquean el resto del plan):
-              - Desarrollo: qué significa "Consumidor no coincide con el cuerpo del mensaje: N" y qué es N.
-              - Negocio: si la C de caracterAceptacion cuenta como éxito, como falla o como caso aparte.
-              - Seguridad: visto bueno para el masking de X-CustIdentNum.
-   [ ] 26/10  Procesadores 9 a 12 (WARN y ruido de apagado), drop del ruido del OneAgent y masking (sección 4).
+VIERNES 23/10 - procesamiento
+   [ ] Validar la métrica de timeouts contra los logs (504 del GenericExceptionMapper, misma ventana).
+   [ ] Procesadores 0, 3 y 5 a 8, probados con la vista previa del procesador sobre líneas reales.
+   [ ] Enviar las preguntas abiertas (no bloquean el plan):
+       - Desarrollo: qué significa "Consumidor no coincide con el cuerpo del mensaje: N" y qué es N.
+       - Negocio: si la C de caracterAceptacion cuenta como éxito, como falla o como caso aparte.
+       - Seguridad: visto bueno para el masking de X-CustIdentNum.
 
-2. MÉTRICAS                                                 Entrega: jueves 29/10
-   [ ] 27/10  log.nexus.adapter.responses, mapping_errors, backend_ms, backend_calls y log.nexus.mngr.errors.
-   [ ] 28/10  soap_responses, consumer_mismatch, stratus_late_replies, stream_issues, log_lines y esb.step_ms.
-   [ ] 29/10  Validar cada métrica contra los logs (sección 10) y marcar Hecho en la tabla de la sección 5.
-   [ ] 29/10  Verificar que la regla de Storage manda los errores a nexus_errores (consulta "Con ingesta: errores
-              de todos los clusters", sección 8) y que la ruta cubre todos los clusters, accountsws incluido.
+LUNES 26/10 - fin del procesamiento y primeras métricas
+   [ ] Procesadores 9 a 12 (WARN y ruido de apagado) y drop del ruido del OneAgent (sección 4).
+   [ ] Masking de X-CustIdentNum, si seguridad ya dio el visto bueno.
+   [ ] Métricas log.nexus.adapter.responses, mapping_errors, backend_ms, backend_calls y log.nexus.mngr.errors.
 
-3. TABLERO GENERAL SOBRE MÉTRICAS                           Entrega: viernes 30/10
-   [ ] 30/10  Pasar los tiles del tablero general a las consultas de la sección 7 y revisarlo con rangos de 24 h y 7 días.
+MARTES 27/10 - resto de las métricas y validación
+   [ ] Métricas soap_responses, consumer_mismatch, stratus_late_replies, stream_issues, log_lines y esb.step_ms.
+   [ ] Validar cada métrica contra los logs (sección 10) y marcar Hecho en la tabla de la sección 5.
+   [ ] Verificar que la regla de Storage manda los errores a nexus_errores (consulta "Con ingesta: errores de todos
+       los clusters", sección 8) y que la ruta cubre todos los clusters, accountsws incluido.
 
-4. ALERTAS                                                  Entrega: viernes 06/11
-   [ ] 03/11  Crear las 7 alertas que reemplazan a las actuales (sección 9) y el Workflow de notificaciones.
-   [ ] 04/11  Crear las 4 alertas nuevas.
-   [ ] 06/11  Después de dos días conviviendo con las viejas, ajustar umbrales y apagar las alertas que leen logs.
+MIÉRCOLES 28/10 - tablero y alertas
+   [ ] Pasar los tiles del tablero general a las consultas de la sección 7 y revisarlo con rangos de 24 h y 7 días.
+   [ ] Crear las 7 alertas que reemplazan a las actuales y las 4 nuevas (sección 9), y el Workflow de notificaciones.
 
-5. CIERRE                                                   Entrega: martes 10/11
-   [ ] 09/11  Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
-   [ ] 09/11  Revisar el costo de ingesta y procesamiento con una semana de datos.
-   [ ] 10/11  Actualizar el notebook (columnas Hecho) y entregar.
+JUEVES 29/10 - cierre (entrega final)
+   [ ] Ajustar los umbrales con lo que dispararon las alertas nuevas el 28/10, comparadas con las viejas.
+   [ ] Apagar las alertas viejas que leen logs.
+   [ ] Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
+   [ ] Revisar el costo de ingesta y procesamiento con los días que haya de datos.
+   [ ] Actualizar el notebook (columnas Hecho) y entregar.
 
 DEPENDENCIAS Y RIESGOS
-- Los procesadores y las métricas que faltan no están probados en el tenant; si la vista previa obliga a ajustar
-  la sintaxis, las fechas de las fases 1 y 2 se pueden correr uno o dos días.
-- Las alertas viejas siguen activas hasta el 06/11: no apagar ninguna antes de validar la métrica que la reemplaza.
-- El masking espera el visto bueno de seguridad; si se demora, el resto del plan sigue igual.
-- Si el formato de los logs cambia (por ejemplo, la C en caracterAceptacion), revisar el procesador 8 y las alertas.
+- No hay margen: si la vista previa obliga a ajustar la sintaxis de los procesadores o las métricas, el ajuste
+  tiene que entrar en el mismo día o se corre todo lo que sigue.
+- Las alertas nuevas conviven con las viejas un solo día (28/10) antes de apagar las viejas. Si el 29/10 alguna
+  métrica no está validada o la alerta nueva dispara de más, dejar activa la vieja de esa alerta y anotarlo.
+- El masking depende del visto bueno de seguridad; si no llega a tiempo, queda pendiente y no frena la entrega.
+- Las preguntas a desarrollo y negocio pueden quedar abiertas: la C se muestra aparte y el valor de "Consumidor
+  no coincide" queda como atributo, sin usarse como dimensión.

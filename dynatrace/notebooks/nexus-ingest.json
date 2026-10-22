@@ -645,7 +645,7 @@
     {
       "id": "6c8e21a8-8d87-4dbe-9050-6fcaeeeb0fff",
       "type": "markdown",
-      "markdown": "## 11. Plan de implementación\n\nLas fechas de cada tarea están en el plan de trabajo (nexus-ingest-plan.txt). En resumen:\n1. Hecho el 22/10: bucket nexus_errores, ruta del pipeline, procesadores 1, 2 y 4, y la métrica de timeouts.\n2. Procesamiento completo: procesadores 0, 3 y 5 a 12, drop y masking. Entrega 26/10.\n3. Métricas restantes, validadas con la sección 10. Entrega 29/10.\n4. Tablero general sobre métricas. Entrega 30/10.\n5. Alertas nuevas y baja de las viejas. Entrega 06/11.\n6. Cierre: tableros por cluster con rango corto y entrega. Entrega 10/11."
+      "markdown": "## 11. Plan de implementación\n\nEntrega final: jueves 29/10. Las tareas de cada día están en el plan de trabajo (nexus-ingest-plan.txt). En resumen:\n1. Hecho el 22/10: bucket nexus_errores, ruta del pipeline, procesadores 1, 2 y 4, y la métrica de timeouts.\n2. 23/10: validar timeouts y procesadores 0, 3 y 5 a 8.\n3. 26/10: procesadores 9 a 12, drop, masking y primeras métricas.\n4. 27/10: resto de las métricas, validadas con la sección 10.\n5. 28/10: tablero general sobre métricas y alertas.\n6. 29/10: ajuste de umbrales, baja de las alertas viejas, tableros por cluster y entrega."
     }
   ]
 }
