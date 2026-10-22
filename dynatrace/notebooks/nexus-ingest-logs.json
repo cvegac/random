@@ -6,27 +6,27 @@
   },
   "sections": [
     {
-      "id": "b00bdcaa-10d9-4c12-b30d-64a98c045818",
+      "id": "eb8a1eb0-2169-4011-ab28-59103d9701c7",
       "type": "markdown",
       "markdown": "# Nexus · Logs desde la ingesta\n\nObjetivo: buscar y diagnosticar en los logs de todos los clusters desde un solo lugar, sin ir tablero por\ntablero, y que esas búsquedas sigan siendo usables con ~30 millones de transacciones por día.\n\nQué se hace en la ingesta (OpenPipeline):\n1. Enriquecer: cada línea llega con atributos `nexus.*` (cluster, servicio, canal, rquid, tipo). Se filtra por\n   atributo en vez de parsear `content` en cada query, y la misma query sirve para todos los clusters.\n2. Descartar ruido: las líneas que nadie consulta no se guardan.\n3. Enmascarar: los datos del cliente no se guardan en claro.\n4. Separar en buckets: los errores van a un bucket chico; buscar errores escanea GB y no TB.\n\nLas consultas que empiezan con \"Hoy\" corren con los datos actuales. Las que empiezan con \"Con ingesta\" devuelven\nresultados cuando los procesadores estén activos.\n\nLas secciones marcadas como (común) son iguales en este notebook y en \"Nexus · Métricas desde la ingesta\",\nporque los dos parten de los mismos procesadores de OpenPipeline. Si se cambian, hay que cambiarlas en los dos."
     },
     {
-      "id": "04fbe25d-84af-421b-8f52-3d0013f7f1d0",
+      "id": "ca6f9bb2-6fb3-43dc-adc4-88d2f9407442",
       "type": "markdown",
       "markdown": "## Atributos `nexus.*` agregados en la ingesta (común)\n\nHoy cada tile hace `parse content` sobre cada línea, cada vez que se abre el tablero. La propuesta es parsear\nuna sola vez, al ingestar, y guardar el resultado como atributos de la línea. Sobre esos atributos se\nconstruye todo lo demás: las métricas (notebook de métricas) y la búsqueda de logs (notebook de logs).\n\n| Atributo | Ejemplo | De dónde sale |\n|---|---|---|\n| `loglevel` | `ERROR` / `WARN` / `INFO` | nivel después de la fecha (campo estándar de Dynatrace, hoy llega en NONE) |\n| `nexus.cluster` | `accountsws` | `aws.log_group` |\n| `nexus.layer` | `adapter` / `mngr` | `aws.log_group` |\n| `nexus.component` | `accountsws-stratus-adapter` | `aws.log_group` |\n| `nexus.service` | `ConsultaBolsillos` | adapter: `X-Referer`; mngr: `/ESBService/<Servicio>` |\n| `nexus.channel` | `37` | adapter: `X-Name` |\n| `nexus.rquid` | uuid | adapter: `X-RqUid`; mngr: `[rquid]` |\n| `nexus.kind` | `audit_resp`, `mapping_error`, `timeout_504`, `technical_error`, `backend_time`, `esb_step`, `mngr_error`, `soap_resp`, `mngr_trace`, `consumer_mismatch`, `stratus_late_reply`, `stream_incomplete_list`, `stream_null_chars`, `shutdown_noise` | tipo de línea |\n| `nexus.http_code` / `nexus.outcome` | `412` / `business_412` | `::HTTPCODE::` (2xx = `ok_2xx`, 412 = `business_412`, otro = `error`, sin código = `unknown`) |\n| `nexus.duration_ms` / `nexus.latency_bucket` | `35` / `0-100ms` | `RSIN` del adaptador; paso del ESB |\n| `nexus.mapping.direction` / `.rule` / `.field` | `REQUEST` / `El atributo %1 ...` / `valSecuencial` | `GenericExceptionMapper` HttpCode 400 |\n| `nexus.esb.step` | `BackendHttpAdapter` | paso del ESB |\n| `nexus.acceptance` / `nexus.soap.msg_code` / `nexus.soap.operation` | `B`, `M` (y `C` cuando exista) / código / operación | respuesta SOAP al canal |\n| `nexus.stream.attribute` | `Registros.Registro` | WARN `[STREAM]` del adaptador (`atributo=`) |\n| `nexus.consumer_mismatch.value` | `1` | WARN del mngr \"Consumidor no coincide...\": valor final, significado por confirmar con desarrollo |\n\nNo se guarda como atributo ningún dato del cliente (documento, cuenta, valores de `1=`/`2=`)."
     },
     {
-      "id": "f3cf6b53-43e0-4279-9325-ac75cbfb9b4f",
+      "id": "9912606a-c4a3-4439-a80e-29de26c70898",
       "type": "markdown",
       "markdown": "## Procesadores de OpenPipeline, pipeline `nexus` (común)\n\nDónde: Settings > Process and contextualize > OpenPipeline > Logs. Crear un pipeline `nexus` y una\n*dynamic route* con la condición:\n\n```\nstartsWith(aws.log_group, \"/aws/ecs/srv/\") and (endsWith(aws.log_group, \"-adapter\") or endsWith(aws.log_group, \"-mngr\"))\n```\n\nEn la etapa Processing, un procesador DQL por tipo de línea, en este orden (los de abajo pisan\n`nexus.kind` de los de arriba). Cada procesador tiene su *matching condition* y su script.\nNota: no están probados en el tenant; el procesador DQL acepta un subconjunto de DQL (`parse`, `fieldsAdd`,\n`fieldsRemove`...). Validarlos con la vista previa del procesador sobre líneas reales antes de activar.\n\n0. Nivel del log. Condición: la de la ruta. Mira solo los primeros 40 caracteres, donde va el nivel después de la\nfecha, para que un \"ERROR\" dentro del mensaje no cambie el nivel de la línea.\n```\nfieldsAdd head = substring(content, from: 0, to: 40)\n| fieldsAdd loglevel = if(contains(head, \" ERROR\"), \"ERROR\", else: if(contains(head, \" WARN\"), \"WARN\",\n                       else: if(contains(head, \" INFO\"), \"INFO\", else: if(contains(head, \" DEBUG\"), \"DEBUG\", else: \"NONE\"))))\n| fieldsRemove head\n```\n\n1. Contexto común. Condición: la de la ruta\n```\nparse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n```\n\n2. Headers del adaptador. Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::HEAD::[\")`\n```\nparse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n```\n\n3. Respuesta del adaptador. Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::AUDIT::RESP::\")`\n```\nparse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n```\n\n4. Excepciones del adaptador (mapeo / 504 / técnicas). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")`\n```\nparse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n```\n(`nexus.mapping.field` es el nombre del campo, no su valor: los valores `1=`/`2=` pueden ser datos del cliente.)\n\n5. Tiempo de backend (RSIN). Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"RSIN\")`\n```\nparse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n```\n\n6. Trazas y pasos del ESB (mngr). Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[/\")`\n```\nfieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| parse content, \"LD '] [' LD:rquid ']['\"\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = rquid,\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, rquid, service_raw, is_step\n```\n\n7. Errores del mngr. Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[ERROR\")`\n```\nfieldsAdd nexus.kind = \"mngr_error\"\n```\n\n8. Respuesta SOAP al canal. Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"<caracterAceptacion>\")`\n```\nparse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code,\n            nexus.soap.operation = operation\n| fieldsRemove acceptance, msg_code, operation\n```\nHoy `caracterAceptacion` vale B (bien) o M (mal), y se está evaluando agregar C (corregido). El procesador toma lo\nque venga entre las etiquetas, así que la C aparece sola como un valor más de `nexus.acceptance`, sin cambiar nada.\nNota: el canal no viaja en la respuesta SOAP (solo en el request). En la ingesta se procesa línea por línea, sin\ncruzar request y response, así que los rechazos (M) por canal siguen saliendo de una query de logs con rango corto.\n\nLos WARN no se descartan: además de los errores de mapeo y los 504 (procesador 4), traen estos casos.\n\n9. Consumidor que no coincide con el mensaje (WARN del mngr). Condición:\n`endsWith(aws.log_group, \"-mngr\") and contains(content, \"Consumidor no coincide con el cuerpo del mensaje\")`\n```\nparse content, \"LD 'cuerpo del mensaje:' SPACE? LD:value\"\n| fieldsAdd nexus.kind = \"consumer_mismatch\", nexus.consumer_mismatch.value = trim(value)\n| fieldsRemove value\n```\nNo pasa en todas las transacciones: varía mucho por cluster, así que apunta a consumidores puntuales. Falta que\ndesarrollo confirme qué es el valor final antes de usarlo como dimensión de una métrica.\n\n10. Respuesta de Stratus después del timeout (WARN del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"despues de timeout\")`\n```\nfieldsAdd nexus.kind = \"stratus_late_reply\"\n```\nJunto con `timeout_504` separa los timeouts en \"Stratus contestó tarde\" y \"Stratus no contestó\".\n\n11. Datos incompletos del backend (WARN `[STREAM]` del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"[STREAM]\")`\n```\nparse content, \"LD 'atributo=' LD:attribute ','\"\n| fieldsAdd nexus.kind = if(contains(content, \"item incompleto\"), \"stream_incomplete_list\",\n                         else: if(contains(content, \"caracteres nulos\"), \"stream_null_chars\", else: \"stream_other\")),\n            nexus.stream.attribute = attribute\n| fieldsRemove attribute\n```\n\n12. Errores de apagado (ruido de cada reinicio del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"[Error Occurred After Shutdown]\")`\n```\nfieldsAdd nexus.kind = \"shutdown_noise\"\n```\nSon ERROR que aparecen en cada deploy o reinicio y no indican una falla; marcados así no inflan los conteos de errores."
     },
     {
-      "id": "cbbfe530-d33a-4ed4-8203-e951156e6060",
+      "id": "7fef1cb2-9113-4f29-bbdc-bbc350be3b56",
       "type": "markdown",
       "markdown": "## 1. Descartar ruido y enmascarar (pipeline `nexus`, etapa *Processing*, al final)\n\nDrop (procesador *Drop record*) para las líneas del OneAgent que nadie consulta. Condición:\n```\ncontains(content, \"] info [native]\") or contains(content, \"] info [cstats]\")\n```\nAntes de activarlo, medir cuánto pesan con la consulta de abajo.\n\nLos WARN no se descartan. Medidos sobre datos reales, ninguno es ruido puro: son errores de mapeo, respuestas\ntardías de Stratus, datos incompletos del backend y el aviso de consumidor que no coincide (procesadores 4, 9, 10\ny 11). Los únicos ERROR que sí son ruido son los de apagado, y se marcan con el procesador 12 en lugar de descartarse.\n\nMasking (procesador DQL), porque el número de documento del cliente viaja en los headers del adaptador.\nCondición `contains(content, \"X-CustIdentNum=\")`\n```\nfieldsAdd content = replacePattern(content, \"'X-CustIdentNum=' LD ','\", \"X-CustIdentNum=####,\")\n```\nNota: no está probado; validar con la vista previa del procesador. Los valores `1=`/`2=`/`3=` de los errores de mapeo\ntambién pueden traer datos del cliente; enmascararlos igual si el área de seguridad lo pide (el tablero ya muestra\n`1=` con los dígitos como 9)."
     },
     {
-      "id": "9003b1de-dfe8-4b53-a701-0d6a24926525",
+      "id": "a9b59c7e-bf62-4148-92d4-f0f76d9e72bc",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: cuánto pesa el ruido del OneAgent (última hora)",
@@ -48,17 +48,17 @@
       }
     },
     {
-      "id": "35d16ec4-3611-4424-aa33-7f351839e338",
+      "id": "f82219a2-a1d4-4443-b7a8-b39238f71308",
       "type": "markdown",
-      "markdown": "## 2. Buckets (pipeline `nexus`, etapa *Storage*)\n\n| Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|\n| `nexus_errores` | `in(nexus.kind, array(\"mapping_error\", \"timeout_504\", \"technical_error\", \"mngr_error\", \"stratus_late_reply\", \"stream_incomplete_list\", \"stream_null_chars\")) or nexus.outcome == \"error\" or nexus.acceptance == \"M\"` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| `logs_integracion` | el resto | la actual | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLos buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
+      "markdown": "## 2. Buckets (pipeline `nexus`, etapa *Storage*)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [ ] | `nexus_errores` | `in(nexus.kind, array(\"mapping_error\", \"timeout_504\", \"technical_error\", \"mngr_error\", \"stratus_late_reply\", \"stream_incomplete_list\", \"stream_null_chars\")) or nexus.outcome == \"error\" or nexus.acceptance == \"M\"` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
     },
     {
-      "id": "e711f4f3-b132-41cd-9179-d423bbc5303f",
+      "id": "651eb9ef-b309-4057-b042-f1772f1bd20b",
       "type": "markdown",
       "markdown": "## 3. Un solo lugar para todos los clusters"
     },
     {
-      "id": "7d68249d-cc70-477c-90db-db009d2f9e4a",
+      "id": "5ea2a698-3a4a-429d-b8fb-444cab4ea5bf",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: rquid en todos los clusters (reemplazar PEGAR-RQUID)",
@@ -80,7 +80,7 @@
       }
     },
     {
-      "id": "f9ea66d1-d57c-40da-a2be-cd831c49bb2d",
+      "id": "cd71ee99-c620-4470-982b-88077a9a7e5d",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: rquid en todos los clusters (reemplazar PEGAR-RQUID)",
@@ -102,7 +102,7 @@
       }
     },
     {
-      "id": "564431f5-9e8c-497f-af89-aa4584e71b5c",
+      "id": "8d7efdb8-4077-4a93-abf6-c3be54d05442",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: errores de todos los clusters por tipo",
@@ -124,7 +124,7 @@
       }
     },
     {
-      "id": "22bb3bc9-e01c-4b41-8947-4536e8a8a909",
+      "id": "1a901422-3f62-4858-a0f8-7ebaf0d194e0",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: tipos de WARN en todos los clusters",
@@ -146,7 +146,7 @@
       }
     },
     {
-      "id": "38c7d9a2-2c5c-4673-9c17-0ca8809e0085",
+      "id": "eeeac0b1-d820-4376-8612-ecc936f877e9",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: consumidor que no coincide, por cada 100 transacciones",
@@ -168,7 +168,7 @@
       }
     },
     {
-      "id": "b3e288cc-4459-423b-a92c-88935d4ae66e",
+      "id": "9623ed6a-c53b-4616-b4f2-c0bdd7847708",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: errores de todos los clusters (bucket de errores)",
@@ -190,7 +190,7 @@
       }
     },
     {
-      "id": "9ce52eb7-6fea-4c95-b15c-4a72141d27d2",
+      "id": "d4c3cebc-d7f7-4001-a051-4ac527eb04db",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: errores de mapeo con ejemplo",
@@ -212,7 +212,7 @@
       }
     },
     {
-      "id": "3887c080-b1e6-4b4f-9ec2-ff2f48238e14",
+      "id": "bcc1c6ec-7991-4901-9c10-b04f49bb75c2",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)",
@@ -234,7 +234,7 @@
       }
     },
     {
-      "id": "1181d546-90da-4d0b-854e-51ff5e702042",
+      "id": "6ab196b8-b4a4-4cf0-a8e1-335147245049",
       "type": "markdown",
       "markdown": "## 4. Sin ir tablero por tablero\n\n- Este notebook ya cubre todos los clusters: los filtros son atributos (`nexus.cluster == \"...\"`), no tableros distintos.\n- App Logs: con los atributos `nexus.*` se filtra con clics (facetas por cluster, servicio, canal, tipo) sin escribir DQL.\n- Tableros por cluster: siguen sirviendo para el detalle de cada equipo; con los atributos, sus queries se\n  simplifican (`filter nexus.cluster == \"accountsws\"` en vez de `parse aws.log_group ...`) y conviene que usen\n  rango corto por defecto.\n\nLas secciones marcadas como (común) son iguales en este notebook y en \"Nexus · Métricas desde la ingesta\",\nporque los dos parten de los mismos procesadores de OpenPipeline. Si se cambian, hay que cambiarlas en los dos."
     }
