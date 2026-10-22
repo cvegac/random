@@ -7,44 +7,45 @@ Estado: [ ] pendiente   [x] hecho
 
 HECHO                                                       22/10
    [x] 22/10  Bucket nexus_errores (sección 6).
-   [x] 22/10  Ruta del pipeline nexus y procesadores 1, 2 y 4 (sección 3).
+   [x] 22/10  Ruta del pipeline nexus y procesadores 0 a 12 (sección 3).
    [x] 22/10  Métrica log.nexus.adapter.timeouts (sección 5).
 
-VIERNES 23/10 - procesamiento
+VIERNES 23/10 - validar el procesamiento y primeras métricas
    [ ] Validar la métrica de timeouts contra los logs (504 del GenericExceptionMapper, misma ventana).
-   [ ] Procesadores 0, 3 y 5 a 8, probados con la vista previa del procesador sobre líneas reales.
+   [ ] Revisar en la app Logs que los atributos nexus.* aparecen bien en todos los tipos de línea y que no hay
+       errores de procesador.
+   [ ] Drop del ruido del OneAgent (sección 4).
+   [ ] Masking de X-CustIdentNum, si seguridad ya dio el visto bueno (sección 4).
    [ ] Enviar las preguntas abiertas (no bloquean el plan):
        - Desarrollo: qué significa "Consumidor no coincide con el cuerpo del mensaje: N" y qué es N.
        - Negocio: si la C de caracterAceptacion cuenta como éxito, como falla o como caso aparte.
        - Seguridad: visto bueno para el masking de X-CustIdentNum.
-
-LUNES 26/10 - fin del procesamiento y primeras métricas
-   [ ] Procesadores 9 a 12 (WARN y ruido de apagado) y drop del ruido del OneAgent (sección 4).
-   [ ] Masking de X-CustIdentNum, si seguridad ya dio el visto bueno.
    [ ] Métricas log.nexus.adapter.responses, mapping_errors, backend_ms, backend_calls y log.nexus.mngr.errors.
 
-MARTES 27/10 - resto de las métricas y validación
+LUNES 26/10 - resto de las métricas y validación
    [ ] Métricas soap_responses, consumer_mismatch, stratus_late_replies, stream_issues, log_lines y esb.step_ms.
    [ ] Validar cada métrica contra los logs (sección 10) y marcar Hecho en la tabla de la sección 5.
    [ ] Verificar que la regla de Storage manda los errores a nexus_errores (consulta "Con ingesta: errores de todos
        los clusters", sección 8) y que la ruta cubre todos los clusters, accountsws incluido.
 
-MIÉRCOLES 28/10 - tablero y alertas
+MARTES 27/10 - tablero y alertas
    [ ] Pasar los tiles del tablero general a las consultas de la sección 7 y revisarlo con rangos de 24 h y 7 días.
    [ ] Crear las 7 alertas que reemplazan a las actuales y las 4 nuevas (sección 9), y el Workflow de notificaciones.
 
-JUEVES 29/10 - cierre (entrega final)
-   [ ] Ajustar los umbrales con lo que dispararon las alertas nuevas el 28/10, comparadas con las viejas.
-   [ ] Apagar las alertas viejas que leen logs.
+MIÉRCOLES 28/10 - alertas nuevas y viejas en paralelo
+   [ ] Comparar lo que disparan las alertas nuevas con las viejas y ajustar los umbrales.
    [ ] Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
+
+JUEVES 29/10 - cierre (entrega final)
+   [ ] Apagar las alertas viejas que leen logs.
    [ ] Revisar el costo de ingesta y procesamiento con los días que haya de datos.
    [ ] Actualizar el notebook (columnas Hecho) y entregar.
 
 DEPENDENCIAS Y RIESGOS
-- No hay margen: si la vista previa obliga a ajustar la sintaxis de los procesadores o las métricas, el ajuste
-  tiene que entrar en el mismo día o se corre todo lo que sigue.
-- Las alertas nuevas conviven con las viejas un solo día (28/10) antes de apagar las viejas. Si el 29/10 alguna
-  métrica no está validada o la alerta nueva dispara de más, dejar activa la vieja de esa alerta y anotarlo.
+- Si alguna métrica no pasa la validación, se corrige el mismo día; las alertas que dependen de ella se crean
+  cuando quede validada.
+- Las alertas nuevas conviven con las viejas el 27 y el 28/10. Si el 29/10 alguna métrica no está validada o la
+  alerta nueva dispara de más, dejar activa la vieja de esa alerta y anotarlo.
 - El masking depende del visto bueno de seguridad; si no llega a tiempo, queda pendiente y no frena la entrega.
 - Las preguntas a desarrollo y negocio pueden quedar abiertas: la C se muestra aparte y el valor de "Consumidor
   no coincide" queda como atributo, sin usarse como dimensión.
