@@ -1,0 +1,63 @@
+PLAN DE TRABAJO - Nexus: pipeline de ingesta (OpenPipeline) para 30M tx/día
+Notebook: "Nexus · Ingesta: métricas y logs" (nexus-ingest.json)
+Inicio: 23/10/2026        Entrega final: 23/12/2026
+Feriados en el período: lunes 02/11, lunes 16/11, martes 08/12.
+Las secciones mencionadas son las del notebook.
+
+Estado: [ ] pendiente   [x] hecho
+
+1. PREPARACIÓN                                              Entrega: miércoles 28/10
+   [ ] 23/10  Subir el notebook al tenant.
+   [ ] 26/10  Correr las consultas "Hoy" de la sección 1 y guardar los números como línea base
+              (volumen por cluster, proyección a 30M, WARN, ruido del OneAgent).
+   [ ] 27/10  Confirmar quién tiene permisos para administrar OpenPipeline y crear buckets.
+   [ ] 28/10  Enviar las preguntas abiertas (no bloquean el resto del plan):
+              - Desarrollo: qué significa "Consumidor no coincide con el cuerpo del mensaje: N" y qué es N.
+              - Negocio: si la C de caracterAceptacion cuenta como éxito, como falla o como caso aparte.
+              - Seguridad: visto bueno para el masking de X-CustIdentNum.
+
+2. PILOTO EN UN CLUSTER (productsws)                        Entrega: jueves 05/11
+   [ ] 29/10  Crear el pipeline nexus con la ruta limitada a productsws (sección 3).
+   [ ] 30/10  Procesadores 0 a 3, probados con la vista previa del procesador sobre líneas reales.
+   [ ] 03/11  Crear la métrica log.nexus.adapter.responses (sección 5).
+   [ ] 05/11  Validar la métrica contra los logs con dos días de datos (sección 10).
+
+3. RESTO DEL PROCESAMIENTO EN EL PILOTO                     Entrega: jueves 12/11
+   [ ] 09/11  Procesadores 4 a 8.
+   [ ] 10/11  Procesadores 9 a 12 (WARN y ruido de apagado).
+   [ ] 11/11  Drop del ruido del OneAgent y masking de X-CustIdentNum (sección 4).
+   [ ] 12/11  Revisar en la app Logs que los atributos nexus.* aparecen bien y que no hay errores de procesador.
+
+4. TODOS LOS CLUSTERS                                       Entrega: viernes 20/11
+   [ ] 13/11  Quitar el filtro de cluster de la ruta para los clusters de menos tráfico.
+   [ ] 18/11  Sumar accountsws (95 % del tráfico) y seguir el volumen procesado.
+   [ ] 20/11  Revisar el costo de ingesta y procesamiento con dos días de datos.
+
+5. RESTO DE LAS MÉTRICAS                                    Entrega: viernes 27/11
+   [ ] 24/11  Crear las 11 métricas restantes (sección 5).
+   [ ] 27/11  Validar cada una contra los logs y marcar Hecho en la tabla de la sección 5.
+
+6. BUCKET DE ERRORES                                        Entrega: miércoles 02/12
+   [ ] 30/11  Crear el bucket nexus_errores con la retención acordada (sección 6).
+   [ ] 02/12  Regla de Storage y verificación con "Con ingesta: errores de todos los clusters" (sección 8).
+
+7. TABLERO GENERAL SOBRE MÉTRICAS                           Entrega: jueves 10/12
+   [ ] 07/12  Pasar los tiles del tablero general a las consultas de la sección 7.
+   [ ] 10/12  Revisar el tablero con el equipo con rangos de 24 h y 7 días.
+
+8. ALERTAS                                                  Entrega: viernes 18/12
+   [ ] 14/12  Crear las 7 alertas que reemplazan a las actuales, cada una con su métrica validada (sección 9).
+   [ ] 15/12  Crear el Workflow que envía las notificaciones.
+   [ ] 16/12  Crear las 4 alertas nuevas.
+   [ ] 18/12  Apagar las alertas viejas que leen logs.
+
+9. CIERRE                                                   Entrega: miércoles 23/12
+   [ ] 22/12  Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
+   [ ] 23/12  Actualizar el notebook (columnas Hecho) y entregar.
+
+DEPENDENCIAS Y RIESGOS
+- Sin permisos de OpenPipeline no arranca la fase 2: si los tiene otro equipo, pedirlos en la fase 1.
+- Los procesadores y las métricas no están probados en el tenant; la vista previa de la fase 2 puede obligar a
+  ajustar la sintaxis y correr las fechas.
+- Si el formato de los logs cambia (por ejemplo, la C en caracterAceptacion), revisar el procesador 8 y las alertas.
+- Las alertas viejas siguen activas hasta el 18/12: no apagarlas antes de validar la métrica que las reemplaza.
