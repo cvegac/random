@@ -6,17 +6,17 @@
   },
   "sections": [
     {
-      "id": "f7fa37da-bd98-425d-ac1a-8b0bca919b13",
+      "id": "8aee3c04-21b9-474a-ae0c-61d0828e393e",
       "type": "markdown",
       "markdown": "# Nexus · Métricas desde la ingesta\n\nObjetivo: que el tablero general de Nexus se arme con métricas generadas al ingestar y no leyendo logs crudos,\npara que aguante ~30 millones de transacciones por día.\n\n¿Por qué? Un tile sobre logs escanea todas las líneas del rango cada vez que se abre: el costo y el tiempo\ncrecen con el tráfico. Una métrica se calcula una sola vez, cuando entra la línea, y consultarla cuesta lo mismo\ncon 30 mil o con 30 millones de transacciones.\n\nLas consultas que empiezan con \"Hoy\" corren con los datos actuales. Las que empiezan con \"Con ingesta\" son los\ntiles del tablero de métricas y devuelven resultados cuando las métricas existan.\n\nLas secciones marcadas como (común) son iguales en este notebook y en \"Nexus · Logs desde la ingesta\",\nporque los dos parten de los mismos procesadores de OpenPipeline. Si se cambian, hay que cambiarlas en los dos."
     },
     {
-      "id": "248f4308-052e-4982-babd-9c6bbe722a70",
+      "id": "a4addc1f-b34c-4024-9e0c-8dcfe2b15fc8",
       "type": "markdown",
       "markdown": "## 1. Cuánto pesa hoy y cuánto pesaría con 30M tx/día"
     },
     {
-      "id": "f880c69e-eda2-4179-9c9c-ef7c7bed60bc",
+      "id": "d54d14bc-020c-4acb-b101-3f87db2b6be1",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: proyección a 30M tx/día (última hora)",
@@ -38,7 +38,7 @@
       }
     },
     {
-      "id": "36bbb3fe-0781-472c-9f75-ac45dc4070a0",
+      "id": "d47b0767-eb24-4743-9f2c-653a5b680d95",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: volumen por cluster (última hora, extrapolado a 24 h al ritmo actual)",
@@ -60,32 +60,32 @@
       }
     },
     {
-      "id": "0d7e8e4f-03a3-4025-823c-0f9cd763a0ef",
+      "id": "db5c4f44-e62d-4354-9807-1864c68b3908",
       "type": "markdown",
       "markdown": "Cómo leerlo: si un tile del tablero escanea `gb_per_day_at_30m` GB para mostrar \"último día\", y el tablero\ntiene ~30 tiles, abrirlo una vez escanea ~30 veces eso. Ese es el número a comparar con el costo de consulta del contrato."
     },
     {
-      "id": "f90b0fa1-bdd1-47ce-a8f3-9aa9920e4441",
+      "id": "313eb613-d2a3-4952-bc93-b886b0e4e4fb",
       "type": "markdown",
       "markdown": "## Atributos `nexus.*` agregados en la ingesta (común)\n\nHoy cada tile hace `parse content` sobre cada línea, cada vez que se abre el tablero. La propuesta es parsear\nuna sola vez, al ingestar, y guardar el resultado como atributos de la línea. Sobre esos atributos se\nconstruye todo lo demás: las métricas (notebook de métricas) y la búsqueda de logs (notebook de logs).\n\n| Atributo | Ejemplo | De dónde sale |\n|---|---|---|\n| `loglevel` | `ERROR` / `WARN` / `INFO` | nivel después de la fecha (campo estándar de Dynatrace, hoy llega en NONE) |\n| `nexus.cluster` | `accountsws` | `aws.log_group` |\n| `nexus.layer` | `adapter` / `mngr` | `aws.log_group` |\n| `nexus.component` | `accountsws-stratus-adapter` | `aws.log_group` |\n| `nexus.service` | `ConsultaBolsillos` | adapter: `X-Referer`; mngr: `/ESBService/<Servicio>` |\n| `nexus.channel` | `37` | adapter: `X-Name` |\n| `nexus.rquid` | uuid | adapter: `X-RqUid`; mngr: `[rquid]` |\n| `nexus.kind` | `audit_resp`, `mapping_error`, `timeout_504`, `technical_error`, `backend_time`, `esb_step`, `mngr_error`, `soap_resp`, `mngr_trace`, `consumer_mismatch`, `stratus_late_reply`, `stream_incomplete_list`, `stream_null_chars`, `shutdown_noise` | tipo de línea |\n| `nexus.http_code` / `nexus.outcome` | `412` / `business_412` | `::HTTPCODE::` (2xx = `ok_2xx`, 412 = `business_412`, otro = `error`, sin código = `unknown`) |\n| `nexus.duration_ms` / `nexus.latency_bucket` | `35` / `0-100ms` | `RSIN` del adaptador; paso del ESB |\n| `nexus.mapping.direction` / `.rule` / `.field` | `REQUEST` / `El atributo %1 ...` / `valSecuencial` | `GenericExceptionMapper` HttpCode 400 |\n| `nexus.esb.step` | `BackendHttpAdapter` | paso del ESB |\n| `nexus.acceptance` / `nexus.soap.msg_code` / `nexus.soap.operation` | `B`, `M` (y `C` cuando exista) / código / operación | respuesta SOAP al canal |\n| `nexus.stream.attribute` | `Registros.Registro` | WARN `[STREAM]` del adaptador (`atributo=`) |\n| `nexus.consumer_mismatch.value` | `1` | WARN del mngr \"Consumidor no coincide...\": valor final, significado por confirmar con desarrollo |\n\nNo se guarda como atributo ningún dato del cliente (documento, cuenta, valores de `1=`/`2=`)."
     },
     {
-      "id": "dfb8399a-bce4-4eb8-b188-267945723c5f",
+      "id": "cdfc9838-cf6c-496b-b182-57061af704e4",
       "type": "markdown",
-      "markdown": "## Procesadores de OpenPipeline, pipeline `nexus` (común)\n\nDónde: Settings > Process and contextualize > OpenPipeline > Logs. Crear un pipeline `nexus` y una\n*dynamic route* con la condición:\n\n```\nstartsWith(aws.log_group, \"/aws/ecs/srv/\") and (endsWith(aws.log_group, \"-adapter\") or endsWith(aws.log_group, \"-mngr\"))\n```\n\nEn la etapa Processing, un procesador DQL por tipo de línea, en este orden (los de abajo pisan\n`nexus.kind` de los de arriba). Cada procesador tiene su *matching condition* y su script.\nNota: no están probados en el tenant; el procesador DQL acepta un subconjunto de DQL (`parse`, `fieldsAdd`,\n`fieldsRemove`...). Validarlos con la vista previa del procesador sobre líneas reales antes de activar.\n\n0. Nivel del log. Condición: la de la ruta. Mira solo los primeros 40 caracteres, donde va el nivel después de la\nfecha, para que un \"ERROR\" dentro del mensaje no cambie el nivel de la línea.\n```\nfieldsAdd head = substring(content, from: 0, to: 40)\n| fieldsAdd loglevel = if(contains(head, \" ERROR\"), \"ERROR\", else: if(contains(head, \" WARN\"), \"WARN\",\n                       else: if(contains(head, \" INFO\"), \"INFO\", else: if(contains(head, \" DEBUG\"), \"DEBUG\", else: \"NONE\"))))\n| fieldsRemove head\n```\n\n1. Contexto común. Condición: la de la ruta\n```\nparse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n```\n\n2. Headers del adaptador. Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::HEAD::[\")`\n```\nparse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n```\n\n3. Respuesta del adaptador. Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"::AUDIT::RESP::\")`\n```\nparse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n```\n\n4. Excepciones del adaptador (mapeo / 504 / técnicas). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")`\n```\nparse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n```\n(`nexus.mapping.field` es el nombre del campo, no su valor: los valores `1=`/`2=` pueden ser datos del cliente.)\n\n5. Tiempo de backend (RSIN). Condición: `endsWith(aws.log_group, \"-adapter\") and contains(content, \"RSIN\")`\n```\nparse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n```\n\n6. Trazas y pasos del ESB (mngr). Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[/\")`\n```\nfieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| parse content, \"LD '] [' LD:rquid ']['\"\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = rquid,\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, rquid, service_raw, is_step\n```\n\n7. Errores del mngr. Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"[ERROR\")`\n```\nfieldsAdd nexus.kind = \"mngr_error\"\n```\n\n8. Respuesta SOAP al canal. Condición: `endsWith(aws.log_group, \"-mngr\") and contains(content, \"<caracterAceptacion>\")`\n```\nparse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code,\n            nexus.soap.operation = operation\n| fieldsRemove acceptance, msg_code, operation\n```\nHoy `caracterAceptacion` vale B (bien) o M (mal), y se está evaluando agregar C (corregido). El procesador toma lo\nque venga entre las etiquetas, así que la C aparece sola como un valor más de `nexus.acceptance`, sin cambiar nada.\nNota: el canal no viaja en la respuesta SOAP (solo en el request). En la ingesta se procesa línea por línea, sin\ncruzar request y response, así que los rechazos (M) por canal siguen saliendo de una query de logs con rango corto.\n\nLos WARN no se descartan: además de los errores de mapeo y los 504 (procesador 4), traen estos casos.\n\n9. Consumidor que no coincide con el mensaje (WARN del mngr). Condición:\n`endsWith(aws.log_group, \"-mngr\") and contains(content, \"Consumidor no coincide con el cuerpo del mensaje\")`\n```\nparse content, \"LD 'cuerpo del mensaje:' SPACE? LD:value\"\n| fieldsAdd nexus.kind = \"consumer_mismatch\", nexus.consumer_mismatch.value = trim(value)\n| fieldsRemove value\n```\nNo pasa en todas las transacciones: varía mucho por cluster, así que apunta a consumidores puntuales. Falta que\ndesarrollo confirme qué es el valor final antes de usarlo como dimensión de una métrica.\n\n10. Respuesta de Stratus después del timeout (WARN del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"despues de timeout\")`\n```\nfieldsAdd nexus.kind = \"stratus_late_reply\"\n```\nJunto con `timeout_504` separa los timeouts en \"Stratus contestó tarde\" y \"Stratus no contestó\".\n\n11. Datos incompletos del backend (WARN `[STREAM]` del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"[STREAM]\")`\n```\nparse content, \"LD 'atributo=' LD:attribute ','\"\n| fieldsAdd nexus.kind = if(contains(content, \"item incompleto\"), \"stream_incomplete_list\",\n                         else: if(contains(content, \"caracteres nulos\"), \"stream_null_chars\", else: \"stream_other\")),\n            nexus.stream.attribute = attribute\n| fieldsRemove attribute\n```\n\n12. Errores de apagado (ruido de cada reinicio del adaptador). Condición:\n`endsWith(aws.log_group, \"-adapter\") and contains(content, \"[Error Occurred After Shutdown]\")`\n```\nfieldsAdd nexus.kind = \"shutdown_noise\"\n```\nSon ERROR que aparecen en cada deploy o reinicio y no indican una falla; marcados así no inflan los conteos de errores."
+      "markdown": "## Procesadores de OpenPipeline, pipeline `nexus` (común)\n\nDónde: Settings > Process and contextualize > OpenPipeline > Logs. Crear un pipeline `nexus` y una\n*dynamic route* con la condición:\n\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\n\nEn la etapa Processing, un procesador DQL por tipo de línea, en este orden (los de abajo pisan\n`nexus.kind` de los de arriba). Cada procesador tiene su *matching condition* y su script: los dos van en bloques\nseparados para copiarlos y pegarlos tal cual. Las condiciones usan `matchesValue`, que acepta `*` al principio y al\nfinal del valor y no distingue mayúsculas de minúsculas.\nNota: no están probados en el tenant; el procesador DQL acepta un subconjunto de DQL (`parse`, `fieldsAdd`,\n`fieldsRemove`...). Validarlos con la vista previa del procesador sobre líneas reales antes de activar.\n\n0. Nivel del log. Mira solo los primeros 40 caracteres, donde va el nivel después de la fecha, para que un \"ERROR\"\ndentro del mensaje no cambie el nivel de la línea.\nCondición:\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\nScript:\n```\nfieldsAdd head = substring(content, from: 0, to: 40)\n| fieldsAdd loglevel = if(contains(head, \" ERROR\"), \"ERROR\", else: if(contains(head, \" WARN\"), \"WARN\",\n                       else: if(contains(head, \" INFO\"), \"INFO\", else: if(contains(head, \" DEBUG\"), \"DEBUG\", else: \"NONE\"))))\n| fieldsRemove head\n```\n\n1. Contexto común.\nCondición:\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\nScript:\n```\nparse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n```\n\n2. Headers del adaptador.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::HEAD::[*\")\n```\nScript:\n```\nparse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n```\n\n3. Respuesta del adaptador.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::AUDIT::RESP::*\")\n```\nScript:\n```\nparse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n```\n\n4. Excepciones del adaptador (mapeo / 504 / técnicas).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*GenericExceptionMapper*\") and matchesValue(content, \"*HttpCode::*\")\n```\nScript:\n```\nparse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n```\n(`nexus.mapping.field` es el nombre del campo, no su valor: los valores `1=`/`2=` pueden ser datos del cliente.)\n\n5. Tiempo de backend (RSIN).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*RSIN*\")\n```\nScript:\n```\nparse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n```\n\n6. Trazas y pasos del ESB (mngr).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[/*\")\n```\nScript:\n```\nfieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| parse content, \"LD '] [' LD:rquid ']['\"\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = rquid,\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, rquid, service_raw, is_step\n```\n\n7. Errores del mngr.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[ERROR*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = \"mngr_error\"\n```\n\n8. Respuesta SOAP al canal.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*<caracterAceptacion>*\")\n```\nScript:\n```\nparse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code,\n            nexus.soap.operation = operation\n| fieldsRemove acceptance, msg_code, operation\n```\nHoy `caracterAceptacion` vale B (bien) o M (mal), y se está evaluando agregar C (corregido). El procesador toma lo\nque venga entre las etiquetas, así que la C aparece sola como un valor más de `nexus.acceptance`, sin cambiar nada.\nNota: el canal no viaja en la respuesta SOAP (solo en el request). En la ingesta se procesa línea por línea, sin\ncruzar request y response, así que los rechazos (M) por canal siguen saliendo de una query de logs con rango corto.\n\nLos WARN no se descartan: además de los errores de mapeo y los 504 (procesador 4), traen estos casos.\n\n9. Consumidor que no coincide con el mensaje (WARN del mngr).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*Consumidor no coincide con el cuerpo del mensaje*\")\n```\nScript:\n```\nparse content, \"LD 'cuerpo del mensaje:' SPACE? LD:value\"\n| fieldsAdd nexus.kind = \"consumer_mismatch\", nexus.consumer_mismatch.value = trim(value)\n| fieldsRemove value\n```\nNo pasa en todas las transacciones: varía mucho por cluster, así que apunta a consumidores puntuales. Falta que\ndesarrollo confirme qué es el valor final antes de usarlo como dimensión de una métrica.\n\n10. Respuesta de Stratus después del timeout (WARN del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*despues de timeout*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = \"stratus_late_reply\"\n```\nJunto con `timeout_504` separa los timeouts en \"Stratus contestó tarde\" y \"Stratus no contestó\".\n\n11. Datos incompletos del backend (WARN `[STREAM]` del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[STREAM]*\")\n```\nScript:\n```\nparse content, \"LD 'atributo=' LD:attribute ','\"\n| fieldsAdd nexus.kind = if(contains(content, \"item incompleto\"), \"stream_incomplete_list\",\n                         else: if(contains(content, \"caracteres nulos\"), \"stream_null_chars\", else: \"stream_other\")),\n            nexus.stream.attribute = attribute\n| fieldsRemove attribute\n```\n\n12. Errores de apagado (ruido de cada reinicio del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[Error Occurred After Shutdown]*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = \"shutdown_noise\"\n```\nSon ERROR que aparecen en cada deploy o reinicio y no indican una falla; marcados así no inflan los conteos de errores."
     },
     {
-      "id": "453e1c9a-2f61-4632-ac53-d666f3f99ef8",
+      "id": "0188f395-f3e8-4a2d-86f9-e6cbc1b2d0d9",
       "type": "markdown",
-      "markdown": "## 2. Extracción de métricas (OpenPipeline > pipeline `nexus` > etapa *Metric extraction*)\n\nCada métrica se extrae de las líneas que matchean su condición, con los atributos `nexus.*` como dimensiones.\nLa clave de las métricas extraídas de logs empieza con `log.`.\n\n| Hecho | Métrica | Tipo | Condición | Dimensiones | Reemplaza en el tablero |\n|---|---|---|---|---|---|\n| [ ] | `log.nexus.adapter.responses` | counter | `nexus.kind == \"audit_resp\"` | cluster, service, channel, outcome, http_code | KPIs, respuestas en el tiempo, % error por servicio/canal |\n| [ ] | `log.nexus.adapter.mapping_errors` | counter | `nexus.kind == \"mapping_error\"` | cluster, service, channel, mapping.direction, mapping.field | ERRORES DE MAPEO (conteos) |\n| [x] | `log.nexus.adapter.timeouts` | counter | `nexus.kind == \"timeout_504\"` | cluster, service, channel | TIMEOUTS 504 |\n| [ ] | `log.nexus.adapter.backend_ms` | value (`nexus.duration_ms`) | `nexus.kind == \"backend_time\"` | cluster, component | LATENCIA ADAPTADOR |\n| [ ] | `log.nexus.adapter.backend_calls` | counter | `nexus.kind == \"backend_time\"` | cluster, component, latency_bucket | distribución de latencia (reemplazo del p95) |\n| [ ] | `log.nexus.mngr.errors` | counter | `nexus.kind == \"mngr_error\"` | cluster, service | ERROR LOGS |\n| [ ] | `log.nexus.mngr.soap_responses` | counter | `nexus.kind == \"soap_resp\"` | cluster, acceptance, soap.operation, soap.msg_code | respuestas al canal B / M / C |\n| [ ] | `log.nexus.mngr.consumer_mismatch` | counter | `nexus.kind == \"consumer_mismatch\"` | cluster | nuevo: WARN \"Consumidor no coincide\" |\n| [ ] | `log.nexus.adapter.stratus_late_replies` | counter | `nexus.kind == \"stratus_late_reply\"` | cluster, component | nuevo: respuestas tardías de Stratus |\n| [ ] | `log.nexus.adapter.stream_issues` | counter | `in(nexus.kind, array(\"stream_incomplete_list\", \"stream_null_chars\", \"stream_other\"))` | cluster, component, kind, stream.attribute | nuevo: calidad de datos del backend |\n| [ ] | `log.nexus.log_lines` | counter | `isNotNull(nexus.cluster) and nexus.kind != \"shutdown_noise\"` | cluster, component, loglevel | nuevo: volumen por nivel (ERROR / WARN / INFO) |\n| [ ] | `log.nexus.esb.step_ms` | value (`nexus.duration_ms`) | `nexus.kind == \"esb_step\"` | cluster, service, esb.step | LATENCIA POR PASO ESB |\n\nLa columna Hecho se marca a mano al crear cada métrica en OpenPipeline: `[x]` hecho, `[ ]` pendiente.\n\nReglas de cardinalidad (lo que más cuesta en métricas):\n- No usar `nexus.rquid` ni valores del cliente como dimensión: serían millones de series.\n- Cluster, servicio, canal y resultado juntos están bien (cientos o miles de series).\n- Cada combinación distinta de dimensiones es una serie que se cobra: antes de sumar una dimensión, preguntar si alguien la va a filtrar.\n\np95: una métrica de valor da promedio, mínimo, máximo, suma y conteo, pero no garantiza percentiles.\nPor eso `backend_calls` lleva `nexus.latency_bucket`: \"qué % de llamadas tarda más de 1 s\" responde lo mismo que un p95\npara alertar.\n\nQué queda en logs (con rango corto): el ejemplo del error de mapeo, los rquids con error, la traza por rquid y\nlos rechazos por canal. Eso es el detalle de cada tablero por cluster, no el general (ver notebook de logs)."
+      "markdown": "## 2. Extracción de métricas (OpenPipeline > pipeline `nexus` > etapa *Metric extraction*)\n\nCada métrica se extrae de las líneas que matchean su condición, con los atributos `nexus.*` como dimensiones.\nLa clave de las métricas extraídas de logs empieza con `log.`.\n\n| Hecho | Métrica | Tipo | Condición | Dimensiones | Reemplaza en el tablero |\n|---|---|---|---|---|---|\n| [ ] | `log.nexus.adapter.responses` | counter | `matchesValue(nexus.kind, \"audit_resp\")` | cluster, service, channel, outcome, http_code | KPIs, respuestas en el tiempo, % error por servicio/canal |\n| [ ] | `log.nexus.adapter.mapping_errors` | counter | `matchesValue(nexus.kind, \"mapping_error\")` | cluster, service, channel, mapping.direction, mapping.field | ERRORES DE MAPEO (conteos) |\n| [x] | `log.nexus.adapter.timeouts` | counter | `matchesValue(nexus.kind, \"timeout_504\")` | cluster, service, channel | TIMEOUTS 504 |\n| [ ] | `log.nexus.adapter.backend_ms` | value (`nexus.duration_ms`) | `matchesValue(nexus.kind, \"backend_time\")` | cluster, component | LATENCIA ADAPTADOR |\n| [ ] | `log.nexus.adapter.backend_calls` | counter | `matchesValue(nexus.kind, \"backend_time\")` | cluster, component, latency_bucket | distribución de latencia (reemplazo del p95) |\n| [ ] | `log.nexus.mngr.errors` | counter | `matchesValue(nexus.kind, \"mngr_error\")` | cluster, service | ERROR LOGS |\n| [ ] | `log.nexus.mngr.soap_responses` | counter | `matchesValue(nexus.kind, \"soap_resp\")` | cluster, acceptance, soap.operation, soap.msg_code | respuestas al canal B / M / C |\n| [ ] | `log.nexus.mngr.consumer_mismatch` | counter | `matchesValue(nexus.kind, \"consumer_mismatch\")` | cluster | nuevo: WARN \"Consumidor no coincide\" |\n| [ ] | `log.nexus.adapter.stratus_late_replies` | counter | `matchesValue(nexus.kind, \"stratus_late_reply\")` | cluster, component | nuevo: respuestas tardías de Stratus |\n| [ ] | `log.nexus.adapter.stream_issues` | counter | `matchesValue(nexus.kind, \"stream_*\")` | cluster, component, kind, stream.attribute | nuevo: calidad de datos del backend |\n| [ ] | `log.nexus.log_lines` | counter | `isNotNull(nexus.cluster) and (isNull(nexus.kind) or not matchesValue(nexus.kind, \"shutdown_noise\"))` | cluster, component, loglevel | nuevo: volumen por nivel (ERROR / WARN / INFO) |\n| [ ] | `log.nexus.esb.step_ms` | value (`nexus.duration_ms`) | `matchesValue(nexus.kind, \"esb_step\")` | cluster, service, esb.step | LATENCIA POR PASO ESB |\n\nLa columna Hecho se marca a mano al crear cada métrica en OpenPipeline: `[x]` hecho, `[ ]` pendiente.\n\nReglas de cardinalidad (lo que más cuesta en métricas):\n- No usar `nexus.rquid` ni valores del cliente como dimensión: serían millones de series.\n- Cluster, servicio, canal y resultado juntos están bien (cientos o miles de series).\n- Cada combinación distinta de dimensiones es una serie que se cobra: antes de sumar una dimensión, preguntar si alguien la va a filtrar.\n\np95: una métrica de valor da promedio, mínimo, máximo, suma y conteo, pero no garantiza percentiles.\nPor eso `backend_calls` lleva `nexus.latency_bucket`: \"qué % de llamadas tarda más de 1 s\" responde lo mismo que un p95\npara alertar.\n\nQué queda en logs (con rango corto): el ejemplo del error de mapeo, los rquids con error, la traza por rquid y\nlos rechazos por canal. Eso es el detalle de cada tablero por cluster, no el general (ver notebook de logs)."
     },
     {
-      "id": "5f49f144-1cf0-4ea1-bd07-5f4d8988b0b6",
+      "id": "d567374e-69d6-4521-b853-9490b505bf77",
       "type": "markdown",
       "markdown": "## 3. Tiles del tablero general (requieren las métricas)"
     },
     {
-      "id": "93983c19-1468-4ed4-ba3b-fa701fd300d3",
+      "id": "09b61d89-18b8-4d16-86a0-edd470743b8e",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: respuestas del adaptador por resultado",
@@ -107,7 +107,7 @@
       }
     },
     {
-      "id": "63b02406-d5fd-4885-a36b-614b97f8555e",
+      "id": "30d56baf-a9e7-48da-9e98-9be18a9b1695",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: % error por cluster",
@@ -129,7 +129,7 @@
       }
     },
     {
-      "id": "0a31290b-29c2-4156-8fe7-6b2ad8a21902",
+      "id": "ce22e45a-a48c-499b-a654-d855a923e89b",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: top servicios con error (con canal)",
@@ -151,7 +151,7 @@
       }
     },
     {
-      "id": "2a9dd5e0-6f39-4f56-b999-843003dddf80",
+      "id": "bde5adf9-a4e5-4311-a11f-ad429e11ecde",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: errores de mapeo por servicio y campo",
@@ -173,7 +173,7 @@
       }
     },
     {
-      "id": "137be5f6-ffb9-492e-962f-119b998695b4",
+      "id": "92c3d8bd-e959-4d77-a57b-50decc7f4154",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: timeouts 504 por minuto",
@@ -195,7 +195,7 @@
       }
     },
     {
-      "id": "da16c80f-4ec8-4fc2-beef-3f8e4180ed3f",
+      "id": "4a94a460-70d9-4c2b-9586-90008e62c795",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: latencia de backend por adaptador",
@@ -217,7 +217,7 @@
       }
     },
     {
-      "id": "c727b04b-9cea-4d2c-ab3d-b0fd6d7f94be",
+      "id": "3bf535be-c3fb-450c-be2d-c1ab0d73402e",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: % llamadas al backend de más de 1 s",
@@ -239,7 +239,7 @@
       }
     },
     {
-      "id": "05adca26-68bc-474c-a6a5-39b53244524b",
+      "id": "818570bf-3b96-4463-a9ae-aaa35ae4b105",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: respuestas al canal B, M y C por cluster",
@@ -261,7 +261,7 @@
       }
     },
     {
-      "id": "ccb8ba12-59b8-4dd6-92a9-deb659d51113",
+      "id": "c53c149b-f961-4831-930a-8563d7a777b7",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: operaciones con más respuestas M",
@@ -283,7 +283,7 @@
       }
     },
     {
-      "id": "032e8836-0db3-4048-a5c4-d69cd0f0607f",
+      "id": "284eadb7-867e-44d0-a5ed-6b221665efe2",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: timeouts 504 y respuestas tardías de Stratus",
@@ -305,7 +305,7 @@
       }
     },
     {
-      "id": "823cc91d-bd4c-4118-8e75-f2ff6456eadd",
+      "id": "1a65b7e3-9989-4379-921e-30fea55c59be",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: WARN y ERROR por componente",
@@ -327,7 +327,7 @@
       }
     },
     {
-      "id": "55ec46e5-144f-42a2-a61e-f72623f73ed1",
+      "id": "b35ae65a-b84a-488b-bb62-67077abdd8c0",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: calidad de datos del backend ([STREAM])",
@@ -349,7 +349,7 @@
       }
     },
     {
-      "id": "466e10ef-5cfd-4192-874c-54fafb562262",
+      "id": "4aab96fd-04c2-4652-86b7-d0ed2cdb40b1",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: consumidor que no coincide, por cada 100 transacciones",
@@ -371,7 +371,7 @@
       }
     },
     {
-      "id": "62874ab8-0ab7-4eb2-961f-37231f9b5c36",
+      "id": "fb64326e-8537-40a6-a0f9-c09ad0c36b6a",
       "type": "dql",
       "showTitle": true,
       "title": "Con ingesta: pasos del ESB más lentos",
@@ -393,17 +393,17 @@
       }
     },
     {
-      "id": "08e5124a-7ceb-4556-9e2b-d47c20ee6a7f",
+      "id": "ba82694e-f3ee-4af6-9eff-c520cbb308be",
       "type": "markdown",
       "markdown": "## Alertas sobre las métricas de ingesta (común)\n\nDónde: app Anomaly Detection > Custom alerts > New. Cada alerta es una query `timeseries` sobre las métricas\n`log.nexus.*`, un analizador y una plantilla de evento.\n\nPor qué cambiarlas: las alertas de hoy (`dynatrace/alerts/*.dql`) corren `fetch logs` cada minuto; con 30M tx/día\nescanean el bucket completo todo el día. Sobre métricas, cada evaluación cuesta lo mismo con cualquier volumen.\nComo las queries devuelven una serie por `nexus.cluster`, Dynatrace evalúa y alerta cada cluster por separado.\n\nTransición: dejar las alertas actuales activas hasta que la métrica de cada una esté validada (sección de\nvalidación del notebook de métricas); después crear la nueva y apagar la vieja.\n\n| Hecho | Alerta | Métrica | Analizador | Umbral inicial | Reemplaza |\n|---|---|---|---|---|---|\n| [ ] | % error real del adaptador | `log.nexus.adapter.responses` | estático, ABOVE | 5 % | `adapters-real-error-pct.dql` |\n| [ ] | Timeouts 504 | `log.nexus.adapter.timeouts` | estático, ABOVE | 2 por minuto | `adapters-timeouts.dql` |\n| [ ] | Errores de mapeo | `log.nexus.adapter.mapping_errors` | estático, ABOVE | 2 por minuto | `adapters-mapping-errors.dql` |\n| [ ] | 5xx del backend | `log.nexus.adapter.responses` | estático, ABOVE | 1 por minuto | `adapters-backend-5xx.dql` |\n| [ ] | % respuestas M al canal | `log.nexus.mngr.soap_responses` | estático, ABOVE (después, línea base estacional) | 40 % (a calibrar) | `channel-rejection-pct.dql` |\n| [ ] | Errores del mngr | `log.nexus.mngr.errors` | auto-adaptativo | | `mngr-errors.dql` |\n| [ ] | % llamadas al backend de más de 1 s | `log.nexus.adapter.backend_calls` | estático, ABOVE | 5 % | `mngr-latency-p90.dql` (ver nota) |\n| [ ] | Respuestas tardías de Stratus | `log.nexus.adapter.stratus_late_replies` | auto-adaptativo | | nueva |\n| [ ] | Consumidor que no coincide (por 100 tx) | `log.nexus.mngr.consumer_mismatch` | auto-adaptativo | | nueva |\n| [ ] | Datos incompletos del backend | `log.nexus.adapter.stream_issues` | auto-adaptativo | | nueva |\n| [ ] | Caída de tráfico | `log.nexus.adapter.responses` | línea base estacional, BELOW | | nueva |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente.\n\nConfiguración común, la misma que las alertas actuales: violating samples 3, sliding window 5, dealerting\nsamples 5, alert on missing data apagado (salvo la caída de tráfico, donde no tener datos es justamente la falla).\nLos umbrales de hoy se calibraron para todos los clusters juntos; por cluster pueden necesitar ajuste, sobre todo\nen los clusters con poco tráfico. En la plantilla del evento, poner el cluster en el título, por ejemplo\n`Nexus: timeouts 504 en {dims:nexus.cluster}` (verificar el formato del placeholder en el tenant).\nPara que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.\n\nNota: ninguna de estas queries está probada; se pueden correr en un notebook en cuanto exista la métrica.\n`interval: 1m` y `default: 0` hacen que los minutos sin datos cuenten como 0 y no como hueco.\n\n% error real del adaptador (2xx y 412 no son error; minutos con 10 respuestas o menos cuentan como 0):\n```\ntimeseries total = sum(log.nexus.adapter.responses, default: 0), by: { nexus.cluster }, interval: 1m\n| join [\n    timeseries errors = sum(log.nexus.adapter.responses, default: 0), by: { nexus.cluster },\n        filter: nexus.outcome == \"error\", interval: 1m\n  ], on: { nexus.cluster }, fields: { errors }\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, nexus.cluster, error_pct\n```\n\nTimeouts 504:\n```\ntimeseries timeouts = sum(log.nexus.adapter.timeouts, default: 0), by: { nexus.cluster }, interval: 1m\n```\n\nErrores de mapeo:\n```\ntimeseries mapping_errors = sum(log.nexus.adapter.mapping_errors, default: 0), by: { nexus.cluster }, interval: 1m\n```\n\n5xx del backend:\n```\ntimeseries backend_5xx = sum(log.nexus.adapter.responses, default: 0), by: { nexus.cluster },\n    filter: startsWith(nexus.http_code, \"5\"), interval: 1m\n```\n\n% respuestas M al canal (la C no cuenta como M hasta que negocio defina qué es):\n```\ntimeseries total = sum(log.nexus.mngr.soap_responses, default: 0), by: { nexus.cluster }, interval: 1m\n| join [\n    timeseries rejected = sum(log.nexus.mngr.soap_responses, default: 0), by: { nexus.cluster },\n        filter: nexus.acceptance == \"M\", interval: 1m\n  ], on: { nexus.cluster }, fields: { rejected }\n| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, nexus.cluster, rejection_pct\n```\n\nErrores del mngr:\n```\ntimeseries mngr_errors = sum(log.nexus.mngr.errors, default: 0), by: { nexus.cluster }, interval: 1m\n```\n\n% llamadas al backend de más de 1 s:\n```\ntimeseries total = sum(log.nexus.adapter.backend_calls, default: 0), by: { nexus.cluster }, interval: 1m\n| join [\n    timeseries slow = sum(log.nexus.adapter.backend_calls, default: 0), by: { nexus.cluster },\n        filter: in(nexus.latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m\n  ], on: { nexus.cluster }, fields: { slow }\n| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, nexus.cluster, slow_pct\n```\nNota: la alerta actual de latencia suma los pasos del ESB por transacción (p90 de punta a punta). Eso necesita\nagrupar por rquid, y una métrica no puede hacerlo. Esta alerta mide la parte del backend; la de punta a punta\npuede quedar sobre logs, pero evaluada cada 5 minutos y no cada minuto.\n\nRespuestas tardías de Stratus:\n```\ntimeseries late_replies = sum(log.nexus.adapter.stratus_late_replies, default: 0), by: { nexus.cluster }, interval: 1m\n```\n\nConsumidor que no coincide, por cada 100 transacciones (el nivel normal cambia mucho entre clusters, por eso\nauto-adaptativo y no un umbral fijo):\n```\ntimeseries tx = sum(log.nexus.adapter.responses, default: 0), by: { nexus.cluster }, interval: 5m\n| join [\n    timeseries mismatches = sum(log.nexus.mngr.consumer_mismatch, default: 0), by: { nexus.cluster }, interval: 5m\n  ], on: { nexus.cluster }, fields: { mismatches }\n| fieldsAdd per_100_tx = if(tx[] > 50, 100.0 * mismatches[] / tx[], else: 0.0)\n| fieldsKeep timeframe, interval, nexus.cluster, per_100_tx\n```\n\nDatos incompletos del backend:\n```\ntimeseries stream_issues = sum(log.nexus.adapter.stream_issues, default: 0), by: { nexus.cluster }, interval: 5m\n```\n\nCaída de tráfico (alert on missing data encendido):\n```\ntimeseries responses = sum(log.nexus.adapter.responses, default: 0), by: { nexus.cluster }, interval: 5m\n```"
     },
     {
-      "id": "11c38b95-aded-44b3-bf22-67eef8a45f3a",
+      "id": "562f56e1-fd0a-4a07-a21c-213596fdea40",
       "type": "markdown",
       "markdown": "## 4. Validación: la métrica tiene que dar lo mismo que los logs\n\nAntes de pasar el tablero general a métricas, comparar en la misma ventana la consulta de abajo (logs) con\n\"Con ingesta: respuestas del adaptador por resultado\". Si difieren más de ~1 %, revisar la condición o el procesador 3."
     },
     {
-      "id": "72548e40-eeff-43b0-8bc8-75175bf9ddb8",
+      "id": "ee2d6567-65c6-4fa9-87ad-e8ffa2cac6a2",
       "type": "dql",
       "showTitle": true,
       "title": "Hoy: respuestas del adaptador por resultado, desde logs (para comparar)",
@@ -425,7 +425,7 @@
       }
     },
     {
-      "id": "40e44aa8-f586-4746-9cff-881c5db6b4cd",
+      "id": "0af690b3-a503-4ea2-b493-3ade2fdbeadb",
       "type": "markdown",
       "markdown": "## 5. Plan sugerido\n\n1. Quién: alguien con permiso de administrar OpenPipeline en el tenant.\n2. Piloto: procesadores 1–3 y la métrica `log.nexus.adapter.responses`, primero para un cluster\n   (agregar `and contains(aws.log_group, \"/productsws-\")` a la ruta); validar con la sección 4.\n3. Resto: procesadores 0 y 4 a 12 y las demás métricas, para todos los clusters.\n4. Tablero general: pasar sus tiles a las consultas \"Con ingesta\" de este notebook (rango 24 h / 7 días sin problema).\n5. Alertas: crear las de la sección de alertas una por una, cada una cuando su métrica esté validada, y apagar la\n   alerta vieja que reemplaza.\n6. Tableros por cluster: quedan sobre logs, para el detalle, con rango corto (ver el notebook \"Nexus · Logs desde la ingesta\").\n\nLas secciones marcadas como (común) son iguales en este notebook y en \"Nexus · Logs desde la ingesta\",\nporque los dos parten de los mismos procesadores de OpenPipeline. Si se cambian, hay que cambiarlas en los dos."
     }
