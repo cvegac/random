@@ -645,7 +645,7 @@
     {
       "id": "6c8e21a8-8d87-4dbe-9050-6fcaeeeb0fff",
       "type": "markdown",
-      "markdown": "## 11. Plan de implementación\n\nEntrega: lunes 26/10 (fecha límite: jueves 29/10). Las tareas están en el plan de trabajo (nexus-ingest-plan.txt).\n1. Hecho el 22/10: bucket nexus_errores, ruta del pipeline, procesadores 0 a 12 y la métrica de timeouts.\n2. 23/10 a la mañana: drop, masking y las 11 métricas restantes.\n3. 23/10 a la tarde: validar las métricas con los datos desde su creación (sección 10), tablero general y alertas,\n   con las alertas viejas todavía prendidas.\n4. 26/10: ajustar umbrales con lo visto el fin de semana, apagar las alertas viejas, tableros por cluster y entrega.\n\nLas métricas cuentan desde que se crean, sin historia hacia atrás: por eso la validación espera unas horas y los\numbrales se ajustan después de ver tráfico real."
+      "markdown": "## 11. Plan de implementación\n\nEntrega: lunes 26/10 (fecha límite: jueves 29/10). Las tareas están en el plan de trabajo (nexus-ingest-plan.txt).\n1. Hecho el 22/10: bucket nexus_errores, ruta del pipeline, procesadores 1 a 8 y la métrica de timeouts.\n2. 23/10 a la mañana: revisar condiciones de los procesadores 5 a 8, procesadores 0 y 9 a 12, drop, masking\n   y las 11 métricas restantes.\n3. 23/10 a la tarde: validar las métricas con los datos desde su creación (sección 10), tablero general y alertas,\n   con las alertas viejas todavía prendidas.\n4. 26/10: ajustar umbrales con lo visto el fin de semana, apagar las alertas viejas, tableros por cluster y entrega.\n\nLas métricas cuentan desde que se crean, sin historia hacia atrás: por eso la validación espera unas horas y los\numbrales se ajustan después de ver tráfico real."
     }
   ]
 }

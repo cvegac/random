@@ -8,10 +8,15 @@ Estado: [ ] pendiente   [x] hecho
 
 HECHO                                                       22/10
    [x] Bucket nexus_errores (sección 6).
-   [x] Ruta del pipeline nexus y procesadores 0 a 12 (sección 3).
+   [x] Ruta del pipeline nexus y procesadores 1 a 8 (sección 3).
    [x] Métrica log.nexus.adapter.timeouts (sección 5).
 
 VIERNES 23/10 - mañana: configurar
+   [ ] Revisar las condiciones de los procesadores 5 a 8: tienen que decir "*-adapter" / "*-mngr" con asterisco.
+   [ ] Comprobar que matchesPhrase da lo mismo que contains en "::HEAD::[", "[/" y "[ERROR"; si no, usar
+       la condición del notebook (matchesValue con asteriscos).
+   [ ] Procesadores 0 (nivel del log) y 9 a 12 (WARN y ruido de apagado), después del 8.
+   [ ] Sumar "stratus_late_reply" y los stream_* a la regla de bucket de errores (sección 6).
    [ ] Drop del ruido del OneAgent y masking de X-CustIdentNum, este último si seguridad ya dio el visto bueno (sección 4).
    [ ] Las 11 métricas restantes (sección 5).
    [ ] Enviar las preguntas abiertas a desarrollo, negocio y seguridad (no bloquean el plan).
