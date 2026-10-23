@@ -25,13 +25,16 @@ VIERNES 23/10 - tarde: validar y consumir
    [ ] Validar cada métrica contra los logs en la ventana desde que se creó (sección 10); marcar Hecho en la sección 5.
    [ ] Validar timeouts igual, con la ventana del 22/10 en adelante.
    [ ] Verificar la regla de Storage del bucket nexus_errores y que la ruta cubre todos los clusters.
-   [ ] Tablero general: pasar sus tiles a las consultas de la sección 7.
+   [x] Tableros nuevos: dashboards/nexus-overview.json (métricas) y dashboards/nexus-detail.json
+       (logs con atributos nexus.* y bucket nexus_errores).
+   [ ] Importar los dos tableros y revisar cada tile a medida que se crea su métrica.
    [ ] Crear las 11 alertas (sección 9) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
 LUNES 26/10 - ajustar y entregar
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
-   [ ] Tableros por cluster: rango corto por defecto y filtros por atributos nexus.*.
+   [ ] Con nexus-overview y nexus-detail validados: borrar del tenant el tablero Nexus y los tableros por
+       cluster, y del repo dynatrace/Nexus.json y build_cluster_dashboards.sh.
    [ ] Revisar el costo de ingesta y procesamiento con los días de datos que haya.
    [ ] Actualizar el notebook (columnas Hecho) y entregar.
 

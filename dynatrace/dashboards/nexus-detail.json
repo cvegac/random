@@ -1,0 +1,343 @@
+{
+  "version": 21,
+  "variables": [
+    {
+      "key": "Cluster",
+      "name": "Cluster",
+      "type": "csv",
+      "input": "*,accountsws,investmentsws,loansws,paymentsws,productsws,clientsws,credit-cardsws,remittancesws,acquiringws,securityws,insurancesws",
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Servicio",
+      "name": "Servicio",
+      "type": "query",
+      "input": "timeseries r = sum(nexus.log.adapter.responses), by: { nexus.cluster, nexus.service }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and isNotNull(nexus.service)\n| summarize n = count(), by: { nexus.service }\n| fields service = nexus.service\n| append [data record(service = \"*\")]\n| sort service asc",
+      "multiple": false,
+      "defaultValue": "*",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Canal",
+      "name": "Canal",
+      "type": "query",
+      "input": "timeseries r = sum(nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and isNotNull(nexus.channel)\n| summarize n = count(), by: { nexus.channel }\n| fields channel = nexus.channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Rquid",
+      "name": "Rquid",
+      "type": "text",
+      "defaultValue": "sin-rquid",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    }
+  ],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "## Nexus - Detalle (logs con atributos nexus.*)\nLee logs: usar rangos cortos. Las secciones 1 y 2 leen el bucket `nexus_errores` (chico); la 3 y la 4 leen también `logs_integracion`. Cluster: uno, varios o `*`. Canal solo existe en las líneas del adaptador: con un canal elegido no aparecen las filas del mngr. Rquid para la sección 4 (ignora los filtros)."
+    },
+    "1": {
+      "type": "markdown",
+      "content": "### 1. Adaptadores"
+    },
+    "2": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERRORES EN EL TIEMPO POR TIPO",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
+      "visualizationSettings": {}
+    },
+    "3": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES POR CLUSTER, SERVICIO, CANAL Y TIPO",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "4": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DE MAPEO CON EJEMPLO",
+      "query": "// the example is built at query time; 1= values may be customer data, so digits become 9\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "5": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RQUIDS CON ERROR (respuesta del adaptador)",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"audit_resp\" and nexus.outcome == \"error\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| fields timestamp, nexus.cluster, nexus.service, nexus.channel, nexus.rquid, nexus.http_code, error_system, error_message\n| sort timestamp desc\n| limit 200",
+      "visualizationSettings": {},
+      "description": "Respuestas fuera de 2xx y 412"
+    },
+    "6": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TIMEOUTS 504 Y RESPUESTAS TARDÍAS DE STRATUS",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter in(nexus.kind, array(\"timeout_504\", \"stratus_late_reply\"))\n| fields timestamp, nexus.kind, nexus.component, nexus.service, nexus.channel, nexus.rquid\n| sort timestamp desc\n| limit 200",
+      "visualizationSettings": {}
+    },
+    "7": {
+      "type": "markdown",
+      "content": "### 2. Proxy WS / ESB"
+    },
+    "8": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DEL MNGR POR MENSAJE",
+      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid), by: { nexus.cluster, nexus.service, pattern }\n| sort errors desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "9": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RECHAZOS AL CANAL (M)",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.acceptance == \"M\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize rejections = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.soap.operation, nexus.soap.msg_code }\n| sort rejections desc\n| limit 50",
+      "visualizationSettings": {},
+      "description": "El canal no viaja en la respuesta SOAP"
+    },
+    "10": {
+      "type": "markdown",
+      "content": "### 3. Transacciones del servicio"
+    },
+    "11": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "VISTA POR TRANSACCIÓN",
+      "query": "// one row per rquid: what the channel got, how long the ESB and the backend took\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter isNotNull(nexus.rquid) and (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.cluster, nexus.service, nexus.rquid }\n| filter in(\"*\", $Canal) or in(channel, $Canal)\n| sort esb_ms desc\n| limit 200",
+      "visualizationSettings": {},
+      "description": "Elegir un servicio y un rango corto"
+    },
+    "12": {
+      "type": "markdown",
+      "content": "### 4. Traza por rquid"
+    },
+    "13": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TRAZA RQUID",
+      "query": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter nexus.rquid == $Rquid or contains(content, $Rquid)\n| fields timestamp, nexus.component, nexus.kind, nexus.duration_ms, content\n| sort timestamp asc\n| limit 1000",
+      "visualizationSettings": {}
+    }
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 24,
+      "h": 1
+    },
+    "2": {
+      "x": 0,
+      "y": 3,
+      "w": 12,
+      "h": 6
+    },
+    "3": {
+      "x": 12,
+      "y": 3,
+      "w": 12,
+      "h": 6
+    },
+    "4": {
+      "x": 0,
+      "y": 9,
+      "w": 24,
+      "h": 8
+    },
+    "5": {
+      "x": 0,
+      "y": 17,
+      "w": 24,
+      "h": 8
+    },
+    "6": {
+      "x": 0,
+      "y": 25,
+      "w": 24,
+      "h": 7
+    },
+    "7": {
+      "x": 0,
+      "y": 32,
+      "w": 24,
+      "h": 1
+    },
+    "8": {
+      "x": 0,
+      "y": 33,
+      "w": 12,
+      "h": 8
+    },
+    "9": {
+      "x": 12,
+      "y": 33,
+      "w": 12,
+      "h": 8
+    },
+    "10": {
+      "x": 0,
+      "y": 41,
+      "w": 24,
+      "h": 1
+    },
+    "11": {
+      "x": 0,
+      "y": 42,
+      "w": 24,
+      "h": 8
+    },
+    "12": {
+      "x": 0,
+      "y": 50,
+      "w": 24,
+      "h": 1
+    },
+    "13": {
+      "x": 0,
+      "y": 51,
+      "w": 24,
+      "h": 10
+    }
+  },
+  "annotations": [],
+  "settings": {
+    "defaultTimeframe": {
+      "value": {
+        "from": "now()-1h",
+        "to": "now()"
+      },
+      "enabled": true
+    }
+  }
+}
