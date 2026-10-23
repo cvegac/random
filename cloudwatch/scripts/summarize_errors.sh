@@ -1,20 +1,115 @@
 #!/usr/bin/env bash
-# Finds error transactions across the *-mngr log groups (rqid, nombreOperacion, msgRespuesta),
-# then for each rqid found, searches its detail trace across the *-mngr and *-adapter log groups
-# for X-Name. Groups the result by (msgRespuesta, X-Name, nombreOperacion) and lists which rqids
-# matched each group. Log groups come from cloudwatch/Nexus.json (see cw_groups in lib/cw.sh).
+# Finds the rqids with errors in the mngr log groups, looks up the X-Name (channel) of each one in the
+# mngr and adapter logs, and groups them by (msgRespuesta, X-Name, nombreOperacion).
 #
-# Usage:  ./summarize_errors.sh "2026-09-23 08:00:00" "2026-09-23 09:00:00"
-#         (times are Colombia local time, UTC-5)
-# Output: results/<start>__<end>/summary.csv and exceptions_summary.csv (adapter exceptions, step 0)
-#
-# Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, BATCH_SIZE, ERROR_PATTERN1, ERROR_PATTERN2, DASHBOARD_JSON,
-#                    DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
+# Usage: ./summarize_errors.sh "2026-09-23 08:00:00" "2026-09-23 09:00:00"   (Colombia time, UTC-5)
+# Output: results/<start>__<end>/summary.csv and exceptions_summary.csv (adapter exceptions)
+# Env: AWS_REGION, OUT_BASE, BATCH_SIZE, ERROR_PATTERN1, ERROR_PATTERN2, DEBUG (0/1/2)
 set -euo pipefail
 
-# shellcheck source=lib/cw.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/cw.sh"
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
+# side effect: jq.exe gets absolute path arguments unconverted, so files go to jq through stdin
+
+DEBUG="${DEBUG:-1}"
+[ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
+
+REGION="${AWS_REGION:-us-east-1}"
+TZ_OFFSET="-05:00"                       # Colombia (no DST)
+FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row -> {field: value}
+
+MNGR_GROUPS=(
+  /aws/ecs/srv/accountsws-mngr /aws/ecs/srv/acquiringws-mngr /aws/ecs/srv/clientsws-mngr
+  /aws/ecs/srv/credit-cardsws-mngr /aws/ecs/srv/insurancesws-mngr /aws/ecs/srv/investmentsws-mngr
+  /aws/ecs/srv/loansws-mngr /aws/ecs/srv/paymentsws-mngr /aws/ecs/srv/productsws-mngr
+  /aws/ecs/srv/remittancesws-mngr /aws/ecs/srv/securityws-mngr
+)
+ADAPTER_GROUPS=(
+  /aws/ecs/srv/accountsws-iseries-adapter /aws/ecs/srv/accountsws-stratus-adapter
+  /aws/ecs/srv/acquiringws-stratus-adapter /aws/ecs/srv/clientsws-stratus-adapter
+  /aws/ecs/srv/credit-cardsws-iseries-adapter /aws/ecs/srv/credit-cardsws-postilion-adapter
+  /aws/ecs/srv/credit-cardsws-stratus-adapter /aws/ecs/srv/insurancesws-stratus-adapter
+  /aws/ecs/srv/investmentsws-stratus-adapter /aws/ecs/srv/loansws-stratus-adapter
+  /aws/ecs/srv/paymentsws-iseries-adapter /aws/ecs/srv/paymentsws-stratus-adapter
+  /aws/ecs/srv/productsws-stratus-adapter /aws/ecs/srv/remittancesws-stratus-adapter
+  /aws/ecs/srv/securityws-stratus-adapter
+)
+ALL_GROUPS=("${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}")
+
+log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
+debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
+die()   { echo "Error: $*" >&2; exit 1; }
+
+to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
+
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
+aws_cli() {
+  local errfile rc=0 real
+  errfile=$(mktemp)
+  aws --no-verify-ssl "$@" 2> "$errfile" || rc=$?
+  real=$(awk '!/InsecureRequestWarning/ && !/^[[:space:]]*warnings\.warn\(/' "$errfile" | tr -d '\r')
+  rm -f "$errfile"
+  if [ -n "$real" ]; then
+    echo "$real" >&2
+    if [ -n "${TMP:-}" ]; then echo "[$(date +%T)] aws ${1:-} ${2:-} (exit $rc): $real" >> "$TMP/aws_errors.log"; fi
+  fi
+  if [ "$rc" -ne 0 ]; then
+    log "aws ${1:-} ${2:-} FAILED (exit code $rc)"
+    case "$real" in
+      *charmap*) log "  hint: encoding problem in the aws cli output; check PYTHONIOENCODING=$PYTHONIOENCODING" ;;
+    esac
+  fi
+  return "$rc"
+}
+
+# cw_submit <query> <start> <end> <log group>...  -> query id; retries while over the concurrent query quota
+cw_submit() {
+  local query="$1" start="$2" end="$3"; shift 3
+  local qid errfile attempt
+  errfile=$(mktemp)
+  for attempt in 1 2 3 4 5 6; do
+    if qid=$(aws_cli logs start-query --region "$REGION" \
+               --start-time "$start" --end-time "$end" \
+               --query-string "$query" --log-group-names "$@" \
+               --query queryId --output text 2> "$errfile" | tr -d '\r'); then
+      rm -f "$errfile"
+      debug "query id: $qid"
+      printf '%s' "$qid"
+      return 0
+    fi
+    case "$(< "$errfile")" in
+      *LimitExceeded*) log "  concurrent query quota reached, retrying in $((attempt * 10))s"; sleep $((attempt * 10)) ;;
+      *) cat "$errfile" >&2; rm -f "$errfile"; return 1 ;;
+    esac
+  done
+  rm -f "$errfile"
+  die "start-query still throttled after $attempt attempts"
+}
+
+cw_collect() {
+  local qid="$1" res status polls=0 t0=$SECONDS
+  while :; do
+    polls=$((polls + 1))
+    res=$(aws_cli logs get-query-results --region "$REGION" --query-id "$qid" --output json)
+    status=$(jq -r .status <<<"$res" | tr -d '\r')
+    debug "poll #$polls $qid status=$status matched=$(jq -r '.statistics.recordsMatched // "?"' <<<"$res" | tr -d '\r') scanned=$(jq -r '.statistics.recordsScanned // "?"' <<<"$res" | tr -d '\r')"
+    case "$status" in
+      Complete) break ;;
+      Failed|Cancelled|Timeout) die "query $qid ended with status $status" ;;
+    esac
+    sleep 2
+  done
+  log "  query $qid complete: $(jq '.results | length' <<<"$res" | tr -d '\r') rows in $((SECONDS - t0))s"
+  printf '%s' "$res"
+}
+
+# run_query <query> <start> <end> <log group>...  -> results JSON
+run_query() {
+  local qid
+  qid=$(cw_submit "$@") || die "start-query failed"
+  cw_collect "$qid"
+}
 
 OUT_BASE="${OUT_BASE:-results}"
 BATCH_SIZE="${BATCH_SIZE:-100}"          # rqids per query in step 2 (query length limit: 10,000 chars)
@@ -22,12 +117,8 @@ ERROR_PATTERN1="${ERROR_PATTERN1:-Error}"
 ERROR_PATTERN2="${ERROR_PATTERN2:-ERROR}"
 
 [ $# -eq 2 ] || die "usage: $0 \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\"  (Colombia time)"
-cw_require_tools
-
-mapfile -t MNGR_GROUPS < <(cw_groups mngr)
-mapfile -t ADAPTER_GROUPS < <(cw_groups adapter)
-[ "${#MNGR_GROUPS[@]}" -gt 0 ] && [ "${#ADAPTER_GROUPS[@]}" -gt 0 ] || die "no log groups found in $DASHBOARD_JSON"
-ALL_GROUPS=("${MNGR_GROUPS[@]}" "${ADAPTER_GROUPS[@]}")
+command -v aws >/dev/null || die "aws cli not found"
+command -v jq  >/dev/null || die "jq not found"
 
 to_label() { date -d "$1" +%Y%m%d_%H%M%S; }
 
@@ -40,13 +131,15 @@ TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 
 debug "region=$REGION window=$START..$END batch=$BATCH_SIZE out=$OUT_DIR"
-cw_debug_env
+if [ "$DEBUG" != 0 ]; then
+  debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r') | PYTHONIOENCODING=$PYTHONIOENCODING PYTHONUTF8=$PYTHONUTF8"
+fi
 
 F_ERRORS="$TMP/1_errors.tsv"
 F_DETAILS="$TMP/2_details.tsv"
 
 # ---------------------------------------------------------------- step 0: adapter HTTP exceptions
-# The REST->SOAP adaptation always answers HTTP 200, so the real backend error only shows up here.
+# the SOAP side always answers HTTP 200, the real backend error only shows up here
 
 log "Step 0: searching GenericExceptionMapper exceptions in ${#ADAPTER_GROUPS[@]} log groups"
 read -r -d '' q0 <<'EOF' || true
@@ -60,8 +153,7 @@ fields @message
 | sort total desc
 | limit 10000
 EOF
-# errorMsg stops at the first "." on purpose: what follows (".RESPONSE: ... 1=...") is raw backend data with
-# customer PII, and it is unique per request, so grouping by it would count every exception separately.
+# errorMsg stops at the first ".": after it comes backend data with customer info, unique per request
 
 run_query "$q0" "$START" "$END" "${ADAPTER_GROUPS[@]}" > "$TMP/0_exceptions.json"
 {
@@ -87,7 +179,7 @@ EOF
 
 run_query "$q1" "$START" "$END" "${MNGR_GROUPS[@]}" > "$TMP/1_errors.json"
 
-# one row per rqid: first non-empty nombreOperacion/msgRespuesta seen for it
+# one row per rqid with its first non-empty nombreOperacion/msgRespuesta
 jq -r "$FLAT
   | {rqid, nombreOperacion: (.nombreOperacion // \"\"), msgRespuesta: (.msgRespuesta // \"\")}" \
   < "$TMP/1_errors.json" | tr -d '\r' \
@@ -133,7 +225,6 @@ for ((i = 0; i < ${#rqids[@]}; i += BATCH_SIZE)); do
   [ "$n" -lt 10000 ] || log "  WARNING: batch hit 10,000 rows (truncated). Lower BATCH_SIZE."
 done
 
-# one row per rqid: first X-Name seen for it
 XNAME_BY_RQID="$TMP/xname_by_rqid.tsv"
 awk -F'\t' '!seen[$1]++' "$F_DETAILS" > "$XNAME_BY_RQID"
 log "  -> X-Name found for $(awk 'END{print NR}' "$XNAME_BY_RQID") of $n_rqids rqid(s)"
@@ -141,7 +232,6 @@ log "  -> X-Name found for $(awk 'END{print NR}' "$XNAME_BY_RQID") of $n_rqids r
 # ---------------------------------------------------------------- step 3: group
 
 log "Step 3: grouping by (msgRespuesta, X-Name, nombreOperacion) -> $OUT_DIR/summary.csv"
-# TSV -> JSON array, each via stdin redirection (never a jq path argument, see the note in lib/cw.sh)
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t"))' < "$F_ERRORS" > "$TMP/errors.json"
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t"))' < "$XNAME_BY_RQID" > "$TMP/xnames.json"
 

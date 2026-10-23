@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
-# Generates one Dynatrace dashboard per Nexus cluster from a template dashboard JSON.
+# Builds one Dynatrace dashboard per Nexus cluster from the all-clusters Nexus dashboard.
+# For each value of the Cluster variable it writes <out_dir>/Nexus-<cluster>.json with the variable
+# removed, every $Cluster filter fixed to that cluster and the errors-by-cluster tile split by service.
 #
-#   ./build_cluster_dashboards.sh                      # ../Dashboards/Nexus.json -> results/dynatrace_clusters/
-#   ./build_cluster_dashboards.sh -t export.json       # another template (e.g. a fresh export from the tenant)
-#   ./build_cluster_dashboards.sh -o out_dir           # another output folder
-#
-# The template is the all-clusters Nexus dashboard: it must have the multi-select `Cluster` variable, whose
-# values (minus "*") are the clusters to build. Default: ../Dashboards/Nexus.json relative to this script
-# (work layout: Dynatrace/Scripts/<this script> + Dynatrace/Dashboards/Nexus.json); in this repo, where the
-# script sits at the root, it falls back to dynatrace/Nexus.json.
-# For each cluster it writes <out_dir>/Nexus-<cluster>.json:
-#   - the Cluster variable is removed and every `$Cluster` filter is fixed to that cluster
-#     (also inside the Servicio/Canal query variables, so their lists only show that cluster)
-#   - the header becomes "## Nexus · <cluster>" without the Cluster hint
-#   - "ERRORES ADAPTADOR POR CLUSTER" becomes "ERRORES ADAPTADOR POR SERVICIO" (one cluster = one line)
-# Optional env var: CLUSTERS="accountsws productsws" builds only those.
-# Needs: jq.
+# Usage: ./build_cluster_dashboards.sh [-t template.json] [-o out_dir]
+#   -t  template (default ../Dashboards/Nexus.json, or ../Nexus.json in this repo)
+#   -o  output folder (default results/dynatrace_clusters)
+# CLUSTERS="accountsws productsws" builds only those.
 
 set -euo pipefail
 
@@ -24,11 +15,11 @@ usage() { echo "usage: $0 [-t template.json] [-o out_dir]" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_TEMPLATE="$SCRIPT_DIR/../Dashboards/Nexus.json"
-if [ ! -f "$DEFAULT_TEMPLATE" ] && [ -f "$SCRIPT_DIR/dynatrace/Nexus.json" ]; then
-  DEFAULT_TEMPLATE="$SCRIPT_DIR/dynatrace/Nexus.json"   # repo layout
+if [ ! -f "$DEFAULT_TEMPLATE" ] && [ -f "$SCRIPT_DIR/../Nexus.json" ]; then
+  DEFAULT_TEMPLATE="$SCRIPT_DIR/../Nexus.json"
 fi
 
-# shellcheck disable=SC2016  # $Cluster is DQL, not shell
+# shellcheck disable=SC2016
 FILTER='def repl($a; $b): split($a) | join($b);
   ("in(\"*\", $Cluster) or in(concat(cluster, \"ws\"), $Cluster)") as $old
   | ("cluster == \"" + $prefix + "\"") as $new
@@ -60,10 +51,9 @@ main() {
   [ -f "$template" ] || die "template not found: $template (use -t)"
   local tpl
   tpl=$(mktemp)
-  trap "rm -f '$tpl'" EXIT   # expanded now: $tpl is local and gone when the EXIT trap runs
-  cat "$template" > "$tpl"   # jq reads it from stdin: Git Bash may hand absolute paths to jq.exe unconverted
+  trap "rm -f '$tpl'" EXIT
+  cat "$template" > "$tpl"   # jq reads from stdin: Git Bash can pass absolute paths to jq.exe unconverted
 
-  # Fed through stdin: Git Bash may hand absolute paths to jq.exe unconverted.
   jq -e '.variables[]? | select(.key == "Cluster")' < "$tpl" >/dev/null \
     || die "the template has no Cluster variable"
 
@@ -78,7 +68,7 @@ main() {
   local n=0 cluster out
   for cluster in $clusters; do
     out="$out_dir/Nexus-$cluster.json"
-    # the log group parse yields the cluster without its "ws" suffix (accountsws -> accounts)
+    # the cluster field has no "ws" suffix (accountsws -> accounts)
     jq --arg cluster "$cluster" --arg prefix "${cluster%ws}" "$FILTER" < "$tpl" > "$out"
     if grep -q '\$Cluster' "$out"; then
       die "$out still references \$Cluster: the template filters the cluster in a way this script doesn't know"

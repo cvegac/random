@@ -1,75 +1,43 @@
 #!/usr/bin/env bash
-# Lists the transactions slower than THRESHOLD_MS end to end in the mngr, with the time split between the
-# mngr itself (proxy) and the adapter it calls, plus every ESB step.
-# Self-contained on purpose (copied as a single file to machines without this repo): no lib/, no dashboard
-# JSON. The log group lists below mirror the SOURCE lines of cloudwatch/Nexus.json; keep them in sync.
-#   total_ms   = sum of the mngr ESB step times ([rquid]...[paso][tiempo unidad] lines); empty when the mngr
-#                logged no step for the transaction (seen on adapter timeouts)
-#   adapter_ms = adapter ::AUDIT::RESP:: time - ::AUDIT::REQ:: time (same X-RqUid); empty if no adapter call
-#   adapter_late_ms = how long after the mngr's last ESB step the adapter answered: the mngr did not wait
-#                for it (e.g. it ended in ERROR first). Empty when the mngr outlived the adapter call.
-#   proxy_ms   = total_ms - adapter_ms (time spent in the mngr itself); empty when adapter_late_ms is set,
-#                because then the adapter time is not part of the mngr time
-#   start_time = earliest line of the transaction (mngr or adapter), Colombia time, to the ms
-#   http_code  = ::HTTPCODE:: of the adapter ::AUDIT::RESP:: line
-#   adapter_error = "<system> <code>: <message>" from the RESP body error, and/or "HttpCode <n>: <exception>"
-#                from GenericExceptionMapper, cut at the first "." (customer data follows ".RESPONSE:")
-#   mngr_error = text after [ERROR <emoji>] in the mngr line(s), first 200 characters; e.g.
-#                [rquid][canal][/ESBService/<Service>:<version>][backend][ERROR ❗] Error en llamada al adapter ...
-#   adapter_audit = full ::AUDIT::REQ:: / ::AUDIT::RESP:: records of the adapter (REST to the backend), in
-#                time order, joined with " || ". Carries customer data and can be huge (Excel cuts a cell at
-#                32,767 chars).
-# A transaction is listed when total_ms OR adapter_ms is over the threshold.
-# Times come from the date the app wrote at the start of each message (adapter "...:SS.ffffff", mngr
-# "...:SS,fff", Colombia time), not from @timestamp; lines without that date fall back to @timestamp. The
-# start/end window still selects lines by @timestamp: it is the only time CloudWatch can filter on.
+# Lists the transactions slower than a threshold, with the time split between the mngr (proxy) and the
+# adapter, and every ESB step. A transaction is listed when total_ms or adapter_ms is over the threshold.
 #
-# Step 1 aggregates per transaction inside CloudWatch and returns only the slow ones; step 2 fetches the
-# steps, service and channel (adapter X-Name) of just those, in batches of rquids.
+# Usage: ./slow_transactions.sh [-c cluster] [-s service] [-t ms] "<start>" "<end>"
+#   -c  ws cluster, e.g. productsws (default: all)
+#   -s  ESB service, e.g. ConsultaProductos (exact name)
+#   -t  threshold in ms (default 1000)
+#   start/end: "YYYY-MM-DD HH:MM:SS", Colombia time (UTC-5)
+# Output: results/<service|cluster|all>_<start>-<end>/<same name>.csv, slowest first
 #
-# Usage:  ./slow_transactions.sh [-c cluster] [-s service] [-t ms] "<start>" "<end>"
-#           -c  only this ws cluster's log groups, e.g. productsws (default: all clusters)
-#           -s  only transactions of this ESB service, e.g. ConsultaProductos (exact name, case-sensitive)
-#           -t  minimum total time in ms (default 1000)
-#           start/end: "YYYY-MM-DD HH:MM:SS", Colombia local time (UTC-5)
-# Example: ./slow_transactions.sh -c productsws -s ConsultaProductos "2026-10-06 08:00:00" "2026-10-06 09:00:00"
-# Output: results/<name>/<name>.csv, slowest first, where <name> = <service>_<start>-<end>
-#         (e.g. ConsultaCuentasInscritas_20261003_0000-20261004_0000; the cluster, or "all", without -s)
+# Columns:
+#   total_ms         sum of the mngr ESB step times; empty when the mngr logged no step (adapter timeouts)
+#   adapter_ms       adapter AUDIT RESP time - AUDIT REQ time for the same X-RqUid
+#   adapter_late_ms  how long after the mngr's last step the adapter answered (the mngr didn't wait for it)
+#   proxy_ms         total_ms - adapter_ms; empty when adapter_late_ms is set
+#   adapter_error    error from the RESP body and/or GenericExceptionMapper, cut at the first "."
+#   mngr_error       text after [ERROR ...] in the mngr lines, first 200 chars
+#   adapter_audit    full AUDIT REQ/RESP records joined with " || " (customer data, can be very long)
+# Times are taken from the date at the start of each message, not from @timestamp.
 #
-# Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x),
-#                    THRESHOLD_MS / CLUSTER / SERVICE  defaults for -t / -c / -s
-#                    BATCH_SIZE    rquids per step-2 query (default 100; query length limit 10,000 chars)
-#                    CHUNK_MINUTES step-1 window slice, the slices run in parallel (default 60)
-#                    MAX_PARALLEL  queries running at once (default 10; the account quota is shared with
-#                                  everyone else; LimitExceeded and "Rate exceeded" are retried)
-#                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .slow_transactions_cache),
-#                    CACHE_DAYS    cached results older than this are deleted at startup (default 7)
-#
-# Cache: every query result is stored keyed by query text + log groups + exact range, so re-running the
-# same command (e.g. after a failure halfway) only queries what is missing; another -c/-s/-t is a new key. Ranges ending in the
-# last 15 minutes are never cached (logs may still be arriving). A cached result is the snapshot taken
-# when it was fetched.
-#
-# Speed: step 1 runs one query per CHUNK_MINUTES slice in parallel; step 2 sorts the slow transactions by
-# time and each batch only scans its own transactions' time range (+-1 min), also in parallel. A slow
-# transaction cut exactly at a slice boundary can be missed if neither half reaches the threshold.
+# Env: AWS_REGION, OUT_BASE, DEBUG (0/1/2), THRESHOLD_MS/CLUSTER/SERVICE (defaults for -t/-c/-s),
+#      BATCH_SIZE (100), CHUNK_MINUTES (60), MAX_PARALLEL (10), CACHE (1), CACHE_DIR, CACHE_DAYS (7)
+# Results are cached by query + log groups + range; ranges ending in the last 15 min are not cached.
+# A slow transaction split across two CHUNK_MINUTES slices can be missed if neither half is over the threshold.
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-                                              # and crashes on log lines it can't map to that charset
-# Side effect of MSYS2_ARG_CONV_EXCL: an absolute path passed as an ARGUMENT to a native Windows binary
-# (jq.exe) reaches it unconverted (/d/... instead of D:\...). Always feed jq files through stdin.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
+# side effect: jq.exe gets absolute path arguments unconverted, so files go to jq through stdin
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
 
 REGION="${AWS_REGION:-us-east-1}"
 TZ_OFFSET="-05:00"                       # Colombia (no DST)
-FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row [{field, value}...] -> {field: value}
+FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row -> {field: value}
 
+# same log groups as cloudwatch/Nexus.json
 MNGR_GROUPS_ALL=(
   /aws/ecs/srv/accountsws-mngr /aws/ecs/srv/acquiringws-mngr /aws/ecs/srv/clientsws-mngr
   /aws/ecs/srv/credit-cardsws-mngr /aws/ecs/srv/insurancesws-mngr /aws/ecs/srv/investmentsws-mngr
@@ -91,11 +59,9 @@ log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
 debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
 die()   { echo "Error: $*" >&2; exit 1; }
 
-# "YYYY-MM-DD HH:MM:SS" in Colombia time -> epoch seconds
 to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
 
-# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
-# stderr (real errors still print and log to $TMP/aws_errors.log).
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -115,9 +81,8 @@ aws_cli() {
   return "$rc"
 }
 
-# cw_submit "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the query id
-# Retries while the account is at its concurrent-query quota (LimitExceededException) or over the StartQuery
-# request rate (ThrottlingException "Rate exceeded", shared with every dashboard open in the account).
+# cw_submit <query> <start> <end> <log group>...  -> query id
+# retries on the concurrent query quota and on StartQuery throttling (shared with every open dashboard)
 cw_submit() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid errfile attempt
@@ -142,7 +107,6 @@ cw_submit() {
   die "start-query still throttled after $attempt attempts"
 }
 
-# cw_collect <query id>  -> polls until the query finishes, prints the results JSON
 cw_collect() {
   local qid="$1" res status polls=0 t0=$SECONDS
   while :; do
@@ -160,18 +124,14 @@ cw_collect() {
   printf '%s' "$res"
 }
 
-# cache_file <query> <start> <end>  -> where that query's result for that exact range is cached. The key
-# covers the query text (threshold, service...) and the log groups (cluster), so nothing stale is served.
+# cache key: query text + log groups + exact range
 cache_file() {
   local key
   key=$({ printf '%s\n' "$1"; printf '%s\n' "${ALL_GROUPS[@]}"; } | cksum | cut -d' ' -f1)
   printf '%s/%s_%s_%s.json' "$CACHE_DIR" "$key" "$2" "$3"
 }
 
-# run_parallel <prefix>  -> runs the queries queued in PQ_QUERY/PQ_START/PQ_END against ALL_GROUPS,
-# MAX_PARALLEL at a time (submit a wave, then collect it), into $TMP/<prefix>_<i>.json. Clears the queue.
-# A cached result is copied instead of querying; a range ending in the last CACHE_FRESH_MIN minutes is never
-# cached because CloudWatch may still be ingesting it.
+# run_parallel <prefix>: runs the queued PQ_* queries MAX_PARALLEL at a time into $TMP/<prefix>_<i>.json
 run_parallel() {
   local prefix="$1" n=${#PQ_QUERY[@]} i j hits=0 cf
   local -a qids=() cfs=()
@@ -189,7 +149,7 @@ run_parallel() {
     for ((j = i; j < n && j < i + MAX_PARALLEL; j++)); do
       if [ -n "${qids[j]}" ]; then
         cw_collect "${qids[j]}" > "$TMP/${prefix}_$j.json"
-        cf=${cfs[j]}   # write-then-rename: an interrupted copy never leaves a half file behind
+        cf=${cfs[j]}
         [ -z "$cf" ] || { cp "$TMP/${prefix}_$j.json" "$cf.part" && mv "$cf.part" "$cf"; }
       fi
       [ "$(jq '.results | length' < "$TMP/${prefix}_$j.json" | tr -d '\r')" -lt 10000 ] \
@@ -237,7 +197,7 @@ done
 shift $((OPTIND - 1))
 [ $# -eq 2 ] || die "$USAGE"
 [[ "$THRESHOLD_MS" =~ ^[0-9]+$ ]] || die "-t must be a whole number of milliseconds"
-# both end up inside a query regex / a path: plain names only
+# both go into a query regex and a path
 [[ -z "$CLUSTER" || "$CLUSTER" =~ ^[a-z-]+$ ]] || die "-c must be a cluster name like productsws or credit-cardsws"
 [[ -z "$SERVICE" || "$SERVICE" =~ ^[A-Za-z0-9_]+$ ]] || die "-s must be a service name like ConsultaProductos"
 [ -z "$SERVICE" ] || [ -n "$CLUSTER" ] || log "Tip: add -c <cluster> with -s, or every cluster is scanned for one service"
@@ -258,7 +218,6 @@ START=$(to_epoch "$1")
 END=$(to_epoch "$2")
 [ "$START" -lt "$END" ] || die "start time must be before end time"
 
-# <service>_<start>-<end>, e.g. ConsultaCuentasInscritas_20261003_0000-20261004_0000 (cluster or "all" without -s)
 FILE_NAME="${SERVICE:-${CLUSTER:-all}}_$(to_label "$1")-$(to_label "$2")"
 OUT_DIR="${OUT_BASE}/${FILE_NAME}"
 TMP="${OUT_DIR}/_intermediate"
@@ -271,12 +230,11 @@ if [ "$DEBUG" != 0 ]; then
   debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r')"
 fi
 
-# mngr ESB step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>]...[paso][tiempo unidad]
+# mngr step line: ... [rquid][canal][/ESBService/<Service>:<version>]...[paso][tiempo unidad]
 STEP_RE='/\[(?<mngrRqid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/'
 
-# msgTs = epoch ms of the date at the start of the message. Insights can't parse a date string, so the
-# message's time of day is compared with @timestamp's (in TZ_OFFSET) and the difference, wrapped to +-12 h,
-# is added to @timestamp; that also gets the day right around midnight. Falls back to @timestamp.
+# msgTs: epoch ms of the date written in the message. Insights can't parse dates, so the difference
+# between the message time of day and @timestamp's (wrapped to +-12 h) is added to @timestamp.
 tz_ms=$(( (10#${TZ_OFFSET:1:2} * 60 + 10#${TZ_OFFSET:4:2}) * 60000 ))
 if [ "${TZ_OFFSET:0:1}" = "-" ]; then TZ_SHIFT="- $tz_ms"; else TZ_SHIFT="+ $tz_ms"; fi
 MSG_TIME="
@@ -288,11 +246,8 @@ MSG_TIME="
 # ---------------------------------------------------------------- step 1: slow transactions (aggregated)
 
 log "Step 1: transactions over ${THRESHOLD_MS} ms${SERVICE:+ of $SERVICE} in ${#MNGR_GROUPS[@]} mngr + ${#ADAPTER_GROUPS[@]} adapter log groups"
-# Only numeric aggregates here (sum/min/max), which ignore lines without the field. A REQ/RESP time is
-# replaced by a sentinel on every other line so min/max pick only the adapter's own AUDIT lines.
-# The service filter can't drop lines (adapter AUDIT lines don't always name the service): it counts the
-# trx's lines naming that service, as an mngr step (/ESBService/<Service>) or in the adapter X-Referer
-# (...-<Service>-...), and keeps the trx if there is at least one. Timeouts may have no mngr step at all.
+# Non-AUDIT lines get a sentinel REQ/RESP time so min/max only see the adapter AUDIT lines.
+# -s can't drop lines (AUDIT lines don't always name the service), so it counts the lines that do.
 SVC_PARSE="" SVC_FIELD="" SVC_STAT="" SVC_FILTER=""
 if [ -n "$SERVICE" ]; then
   SVC_PARSE="
@@ -331,9 +286,8 @@ log "  ${#PQ_QUERY[@]} slice(s) of ${CHUNK_MINUTES} min, up to ${MAX_PARALLEL} a
 n_slices=${#PQ_QUERY[@]}
 run_parallel 1_slow
 
-# Merge the slices: a transaction cut at a slice boundary shows up in both, so its parts are combined.
-# trx<TAB>total<TAB>steps<TAB>adapter_ms<TAB>firstTs<TAB>lastTs<TAB>adapter_late_ms (adapter_ms "" without a
-# REQ+RESP pair; adapter_late_ms "" unless the adapter answered after the mngr's last ESB step)
+# a transaction cut by a slice boundary shows up in both slices, merge them
+# trx, total, steps, adapter_ms, firstTs, lastTs, adapter_late_ms
 for ((j = 0; j < n_slices; j++)); do jq -c "$FLAT" < "$TMP/1_slow_$j.json"; done | tr -d '\r' | jq -s -r '
   group_by(.trx) | map({trx: .[0].trx,
       total: (map(.totalMs | tonumber) | add), steps: (map(.stepCount | tonumber) | add),
@@ -351,8 +305,8 @@ log "  -> $n1 transaction(s) over ${THRESHOLD_MS} ms"
 # ---------------------------------------------------------------- step 2: steps, service and channel
 
 log "Step 2: steps, service and channel of those transactions"
-# Batches of transactions close in time; each one scans only [first line - 60 s, last line + 60 s] of its
-# own transactions instead of the whole window. Lines: <start epoch>\t<end epoch>\t<trx|trx|...>
+# batches of transactions close in time, each one only scans its own range +-60 s
+# <start>\t<end>\t<trx|trx|...>
 jq -R -s -r --argjson n "$BATCH_SIZE" --argjson ws "$START" --argjson we "$END" '
   split("\n") | map(select(length > 0) | split("\t") | {trx: .[0], first: (.[4] | tonumber), last: (.[5] | tonumber)})
   | sort_by(.first) | [range(0; length; $n) as $i | .[$i:$i + $n]] | .[]
@@ -393,7 +347,6 @@ for ((j = 0; j < n_batches; j++)); do jq -c "$FLAT" < "$TMP/2_batch_$j.json"; do
 # ---------------------------------------------------------------- step 3: CSV
 
 log "Step 3: building $OUT_CSV"
-# TSV -> JSON array via stdin (never a jq path argument, see the MSYS note at the top)
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
           | {trx: .[0], total: (.[1] | tonumber), step_count: (.[2] | tonumber),
              adapter: (if .[3] == "" then null else (.[3] | tonumber) end),
@@ -406,16 +359,14 @@ cat "$TMP/slow.json" "$TMP/details.json" | jq -s -r --arg header "$HEADER" --arg
   def ms: . * 100 | round / 100;
   # epoch ms -> "YYYY-MM-DD HH:MM:SS.mmm" in TZ_OFFSET
   def local_time: ((. / 1000 | floor) + $tz | strftime("%Y-%m-%d %H:%M:%S")) + "." + ("00\(. % 1000)" | .[-3:]);
-  # mngr lines only have millisecond precision and several steps share the same millisecond, so ties are
-  # broken by the ESB pipeline order (same as the columns of query_nexus_traces.sh); unknown steps go last
+  # steps logged in the same ms are ordered by their position in the pipeline
   (["ValidateServiceInformation", "SignatureValidationStep", "BodyManipulatorStep", "XsdValidationStep",
     "DataBlockExtractorStep", "XmlToJsonConverterStep", "BackendHttpAdapter", "ResponseSigningStep",
     "ResponseBuilderStep"] | to_entries | map({(.value): .key}) | add) as $pipeline
   |
   (.[1] | group_by(.trx) | map({key: .[0].trx, value: .}) | from_entries) as $detail
   | .[0]
-  # without mngr steps (e.g. an adapter timeout) the mngr total is unknown: total/proxy stay empty and the
-  # adapter time ranks it; the service then comes from the adapter X-Referer
+  # no mngr steps (e.g. adapter timeout): ranked by adapter time, service taken from X-Referer
   | map(. + {has_steps: (.step_count > 0)}) | sort_by(-([(if .has_steps then .total else 0 end), (.adapter // 0)] | max))
   | ($header | split(",")),
     (.[] | ($detail[.trx] // []) as $rows

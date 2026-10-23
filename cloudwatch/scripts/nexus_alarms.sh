@@ -1,28 +1,20 @@
 #!/usr/bin/env bash
-# Creates (or deletes) the Nexus CloudWatch metric filters, alarms and the NexusAlarmas dashboard. Alarms are
-# ALWAYS created with their actions disabled, so nothing notifies anyone until an engineer reviews and enables them.
-# The dashboard lists alarm ARNs (which carry the account id), so its body is built in memory at run time and
-# sent straight to AWS; it is never written to disk or to this repo.
+# Creates or deletes the Nexus CloudWatch metric filters, alarms and the NexusAlarmas dashboard.
+# Alarms are created with actions disabled; enable them after reviewing the thresholds.
 #
-# Usage:  ./nexus_alarms.sh create                 dry-run (default): tests patterns, prints the plan, creates nothing
-#         DRY_RUN=0 ./nexus_alarms.sh create       applies it
-#         DRY_RUN=0 ./nexus_alarms.sh filters      updates only the metric filters; alarms and the dashboard are left
-#                                                  untouched, so thresholds tuned by hand in the console survive
-#         DRY_RUN=0 ./nexus_alarms.sh dashboard    rebuilds only the dashboard; alarms and filters are left untouched,
-#                                                  so thresholds tuned by hand in the console survive
-#         DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
+# Usage: ./nexus_alarms.sh create                 dry run (default): tests the patterns and prints the plan
+#        DRY_RUN=0 ./nexus_alarms.sh create       applies it
+#        DRY_RUN=0 ./nexus_alarms.sh filters      only the metric filters (alarm thresholds are kept)
+#        DRY_RUN=0 ./nexus_alarms.sh dashboard    only the dashboard
+#        DRY_RUN=0 ./nexus_alarms.sh delete       removes everything "create" made
 #
-# The target account is whatever the AWS credentials in the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-# AWS_SESSION_TOKEN) belong to; this script deliberately does not check it.
-# It runs the same in any environment (lab, prod): log groups or gateway traffic that don't exist
-# there are reported and skipped. Every name starts with "nexus-" and every metric lives under "Nexus/*", so a
-# re-run overwrites instead of duplicating, and "delete" removes exactly what "create" made. Thresholds are
-# starting points to be tuned.
-#
-# Requires: aws cli v2, jq. Optional env vars: AWS_REGION, DRY_RUN (default 1).
+# Works on the account of the AWS credentials in the environment; log groups missing there are skipped.
+# Everything is named nexus-* under Nexus/*, so running it again overwrites instead of duplicating.
+# The dashboard body has alarm ARNs, so it is built in memory and never saved to disk.
+# Env: AWS_REGION, DRY_RUN (1)
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
 export PYTHONWARNINGS="ignore:Unverified HTTPS request"
 export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
 
@@ -61,7 +53,7 @@ aws_cli() {
   return "$rc"
 }
 
-# Mutating calls go through here: in dry-run they are only described.
+# in dry run the call is only logged
 mutate() {
   local desc="$1"; shift
   if [ "$DRY_RUN" = 1 ]; then log "  [dry-run] $desc"; return 0; fi
@@ -69,7 +61,7 @@ mutate() {
   log "  done: $desc"
 }
 
-# Keeps only the log groups that exist in this account, so the same run works in lab and prod.
+# lab and prod don't have the same log groups
 declare -A EXISTS=()
 load_existing_groups() {
   local p lg
@@ -91,7 +83,7 @@ keep_existing() {  # keep_existing <array name>
 
 # ---------------------------------------------------------------- pattern self-test (read-only)
 
-# expect <pattern> <expected matches: 1|0> <sample message>. test-metric-filter touches no log group.
+# expect <pattern> <1|0> <sample>
 expect() {
   local pattern="$1" want="$2" sample="$3" got
   got=$(aws_cli logs test-metric-filter --region "$REGION" --filter-pattern "$pattern" \
@@ -99,7 +91,7 @@ expect() {
   [ "$got" = "$want" ] || die "pattern '$pattern' gave $got match(es), expected $want. Nothing was created."
 }
 
-# Synthetic lines shaped like the real adapter/mngr logs, with no real ids or customer data.
+# sample lines with the same shape as the adapter and mngr logs
 RQ="00000000-0000-0000-0000-000000000000"
 S_REQ="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::REQ::METHOD::POST::HEAD::[X-RqUid=$RQ,X-Name=37]::URI::/x::BODY::{}"
 S_200="2026-01-01 00:00:00.000000 INFO  [x.AuditFilter] (executor-thread-1) ::AUDIT::RESP::HEAD::[X-RqUid=$RQ,X-Name=37]::BODY::{\"ok\":1}::HTTPCODE::200"
@@ -113,16 +105,16 @@ S_MNGR_INFO="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <msgRespuest
 S_SOAP_M="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><DataHeader><nombreOperacion>X</nombreOperacion><caracterAceptacion>M</caracterAceptacion><codMsgRespuesta>1</codMsgRespuesta></DataHeader></Response> ][AuditLog]"
 S_SOAP_B="2026-01-01 00:00:00,000 INFO [dt] [$RQ][INFO i][ Body= <Response><DataHeader><nombreOperacion>X</nombreOperacion><caracterAceptacion>B</caracterAceptacion><codMsgRespuesta>0</codMsgRespuesta></DataHeader></Response> ][AuditLog]"
 
-# Regex only where needed: CloudWatch allows at most 5 regex filter patterns per log group (4 used here).
+# CloudWatch allows at most 5 regex filter patterns per log group (4 used here)
 P_RESP='%::AUDIT::RESP::%'
 P_2XX='%::HTTPCODE::2[0-9][0-9]%'   # any 2xx is a success (e.g. 206 on payments)
 P_412='%::HTTPCODE::412%'
 P_5XX='%::HTTPCODE::5[0-9][0-9]%'
-# 504 from the mapper is a backend timeout, not a mapping error: the two patterns split the mapper lines between them
+# a mapper 504 is a backend timeout, not a mapping error
 P_MAP='"GenericExceptionMapper" "HttpCode::" -"HttpCode:: 504"'
 P_TIMEOUT='"GenericExceptionMapper" "HttpCode:: 504"'
-P_MNGR_ERR='"[ERROR"'   # the level marker may carry an emoji after ERROR; "[ERROR" matches either way
-# SOAP response the channel receives: caracterAceptacion B = accepted, M = rejected (business or technical)
+P_MNGR_ERR='"[ERROR"'   # the level can have an emoji after ERROR
+# SOAP response to the channel: caracterAceptacion B = accepted, M = rejected (business or technical)
 P_CANAL_RESP='"<caracterAceptacion>"'
 P_CANAL_REJ='"<caracterAceptacion>M</caracterAceptacion>"'
 
@@ -140,8 +132,8 @@ test_log_patterns() {
   log "  all patterns behave as expected"
 }
 
-# The gateway access-log format isn't known up front: learn it from one real recent event and pick
-# numeric or string JSON comparisons to match. The event is only used in memory, never printed or saved.
+# status can be a number or a string depending on the access log format, so read one recent event
+# to pick the right comparison
 GW_ENABLED=0; GW_LATENCY=0
 learn_gateway_patterns() {
   local lg="" candidate start msg="" stype ltype s5 s2
@@ -181,7 +173,7 @@ learn_gateway_patterns() {
 
 put_filter() {  # put_filter <log-group> <filter-name> <pattern> <namespace> <metric> [value]
   local lg="$1" name="$PREFIX$2" pattern="$3" ns="$4" metric="$5" value="${6:-1}" extra=""
-  [ "$value" != 1 ] || extra=",defaultValue=0"   # counts default to 0; a measured value must not
+  [ "$value" != 1 ] || extra=",defaultValue=0"   # only counts default to 0
   mutate "metric filter $name on $lg" logs put-metric-filter --region "$REGION" --log-group-name "$lg" \
     --filter-name "$name" --filter-pattern "$pattern" \
     --metric-transformations "metricName=$metric,metricNamespace=$ns,metricValue=$value$extra"
@@ -227,7 +219,7 @@ create_filters() {
   log "Metric filters: adapters (${#ADAPTER_GROUPS[@]} groups)"
   for lg in "${ADAPTER_GROUPS[@]}"; do
     put_filter "$lg" adapter-responses "$P_RESP" Nexus/Adapters AdapterResponses
-    # counts every 2xx; the filter and metric keep their original "200" names so existing alarms keep working
+    # counts any 2xx, the "200" name stays so existing alarms keep working
     put_filter "$lg" adapter-responses-200 "$P_2XX" Nexus/Adapters AdapterResponses200
     put_filter "$lg" adapter-responses-412 "$P_412" Nexus/Adapters AdapterResponses412
     put_filter "$lg" adapter-responses-5xx "$P_5XX" Nexus/Adapters AdapterResponses5xx
@@ -243,7 +235,7 @@ create_filters() {
   done
 }
 
-# Needs GW_ENABLED/GW_LATENCY, set by learn_gateway_patterns in create_filters.
+# needs GW_ENABLED/GW_LATENCY from create_filters
 create_alarms() {
   log "Alarms (all with actions disabled)"
   if [ "$GW_ENABLED" = 1 ]; then
@@ -254,7 +246,7 @@ create_alarms() {
         --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 3000 \
         --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching
     fi
-    # 3 of 3: the newest 5-minute period is often still filling up and would read as a fake drop
+    # 3 of 3: the last period is usually incomplete and looks like a drop
     alarm gateway-traffic-drop "Gateway traffic below its anomaly band (the model needs ~2 weeks of data)" \
       --evaluation-periods 3 --datapoints-to-alarm 3 --comparison-operator LessThanLowerThreshold \
       --threshold-metric-id band --treat-missing-data breaching \
@@ -268,16 +260,15 @@ create_alarms() {
   sum_alarm adapters-mapping-errors "GenericExceptionMapper errors in the adapters, 504 timeouts excluded" Nexus/Adapters AdapterMappingErrors 10
   sum_alarm adapters-timeouts "Backend timeouts (504) reported by the adapters' GenericExceptionMapper" Nexus/Adapters AdapterTimeouts 10
   sum_alarm mngr-errors "[ERROR lines in the ws mngr" Nexus/Mngr MngrErrors 20
-  # M mixes business answers and technical errors, so its normal level is well above 0: calibrate the
-  # threshold with the "% rechazo al canal (M)" dashboard widget before enabling this one.
+  # M includes business answers, so its normal level is well above 0: check the
+  # "% rechazo al canal (M)" widget before enabling it
   alarm channel-rejection-pct "% of SOAP responses to the channel with caracterAceptacion M; only with >50 responses" \
     --evaluation-periods 3 --datapoints-to-alarm 2 --threshold 40 \
     --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
     --metrics "[$(metric_stat total Nexus/Mngr ChannelResponses),$(metric_stat rej Nexus/Mngr ChannelRejections),{\"Id\":\"pct\",\"Expression\":\"IF(total > 50, rej * 100 / total, 0)\",\"Label\":\"channel rejection %\",\"ReturnData\":true}]"
 }
 
-# Layout: status of the Nexus alarms, then one graph per alarm (metric vs threshold, 3 per row).
-# Built from the alarms that exist right now. ECS task alarms are left out: the account already has its own.
+# alarm status on top, then one graph per alarm, 3 per row (nexus-ecs-* alarms are skipped)
 create_dashboard() {
   local alarms body n
   log "Dashboard $DASHBOARD, from the $PREFIX* alarms that exist now"

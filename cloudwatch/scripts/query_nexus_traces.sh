@@ -1,35 +1,25 @@
 #!/usr/bin/env bash
-# Queries CloudWatch Logs Insights for ESB step-timing traces and aggregates them into one row
-# per transaction (rquid + servicio), with all 9 pipeline step times as columns. Replaces
-# consultaNexusPasoPaso.sh — fixed its TZ, 10k-row-cap, and chunk-boundary bugs (see git log).
+# Fetches the ESB step-timing lines of a mngr log group and writes one row per transaction
+# (rquid + servicio) with the 9 pipeline step times as columns.
+# The range is queried whole and only split where a query hits 10,000 rows. Queries run in parallel
+# and are cached on disk, so running it again only fetches what is missing.
 #
-# No chunk size to pick: starts with the whole range in one query and only splits a window when it
-# hits the 10,000-row cap. Windows are fetched in parallel and cached to disk, so a re-run after a
-# crash or AWS hiccup only fetches what's still missing (details inline near the relevant code).
-#
-# Usage:  ./query_nexus_traces.sh <log-group> "<start>" "<end>" [output.csv]
-#         (start/end are local time, offset TZ_OFFSET below; default -05:00 = Bogota)
-# Arg order differs from consultaNexusPasoPaso.sh: no more $4 interval-minutes, $4 is output file.
-#
-# Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
-# Optional env vars: AWS_REGION, TZ_OFFSET (default -05:00; +00:00 for UTC input), PARALLEL
-#                    (default 6; AWS's account-wide concurrent-query cap is 100), CACHE_DIR
-#                    (default .query_nexus_cache; grows unbounded, nothing prunes it), BAR_WIDTH
-#                    (default 50), PROGRESS_STEP (default 1), DEBUG (0/1/2, default 1)
+# Usage: ./query_nexus_traces.sh <log-group> "<start>" "<end>" [output.csv]
+#        start/end in local time (TZ_OFFSET, default -05:00)
+# Env: AWS_REGION, TZ_OFFSET (+00:00 for UTC input), PARALLEL (6), CACHE_DIR (.query_nexus_cache,
+#      never pruned), BAR_WIDTH (50), PROGRESS_STEP (1), DEBUG (0/1/2)
 set -euo pipefail
-set -m   # each backgrounded query gets its own process group, so `kill -- -$pid` (see trap below)
-         # takes its children down too — plain `kill $pid` does not
+set -m   # one process group per job, so the exit trap can kill the job and its children
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-                                              # and crashes on log lines it can't map to that charset
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
 
 REGION="${AWS_REGION:-us-east-1}"
-MAX_ROWS=10000                    # Logs Insights hard cap; keep in sync with "| limit 10000" in QUERY
+MAX_ROWS=10000                    # must match "limit" in QUERY
 TZ_OFFSET="${TZ_OFFSET:--05:00}"  # Bogota, no DST
 
 log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
@@ -43,15 +33,14 @@ command -v jq  >/dev/null || die "jq not found"
 
 LOG_GROUP="$1"
 
-# Arithmetic offset, not TZ="America/Bogota": needs no zoneinfo database, so it can't be silently
-# ignored on a machine that doesn't have that zone installed (bit us once — see git log).
+# fixed offset instead of TZ=America/Bogota, which silently fails without the zoneinfo database
 tzo="${TZ_OFFSET#[+-]}"; tzsign=1; [ "${TZ_OFFSET:0:1}" = "-" ] && tzsign=-1
 TZ_OFFSET_SECONDS=$(( tzsign * (10#${tzo%%:*} * 3600 + 10#${tzo##*:} * 60) ))
 
 to_epoch()  { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
 to_label()  { date -d "$1 ${TZ_OFFSET}" +%Y%m%d_%H%M%S 2>/dev/null || die "invalid date: '$1'"; }
-fmt_local() { date -u -d "@$(( $1 + TZ_OFFSET_SECONDS ))" '+%Y-%m-%d %H:%M:%S'; }   # epoch -> local wall clock
-fmt_utc()   { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }                              # epoch -> UTC (what the console shows)
+fmt_local() { date -u -d "@$(( $1 + TZ_OFFSET_SECONDS ))" '+%Y-%m-%d %H:%M:%S'; }
+fmt_utc()   { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }   # what the CloudWatch console shows
 
 START=$(to_epoch "$2")
 END=$(to_epoch "$3")
@@ -63,18 +52,14 @@ CSV_HEADER='horaprimeratrx,horaultimatrx,rquid,servicio,ValidateServiceInformati
 
 PARALLEL="${PARALLEL:-6}"
 TMP=$(mktemp -d)
-# Kill any query still in flight before removing $TMP, on any exit. Otherwise an orphaned job
-# writes into $TMP after it's gone ("No such file or directory"), long after the real error above it.
+# kill running queries before removing $TMP, or they keep writing into it
 trap 'for _p in $(jobs -p); do kill -- "-$_p" 2>/dev/null; done; rm -rf "$TMP"' EXIT
-RAW="$TMP/raw.ndjson"          # final, de-duplicated dataset (step 1's output, step 2's input)
+RAW="$TMP/raw.ndjson"
 JOBDIR="$TMP/jobs"; mkdir -p "$JOBDIR"
 
-# ---- coverage progress bar -------------------------------------------------------------------
-# Shows WHICH parts of the range are already fetched, not just an overall %: eighth-of-a-character
-# blocks give enough resolution that a lone 10-minute leaf inside a 24h request still shows up.
-# Plain new log lines, no \r redraw / ANSI cursor movement — kept simple and portable.
+# ---- progress bar: which parts of the range are done, in 1/8 character blocks
 BAR_WIDTH="${BAR_WIDTH:-50}"
-PROGRESS_STEP="${PROGRESS_STEP:-1}"   # only reprint once coverage advances by this many points
+PROGRESS_STEP="${PROGRESS_STEP:-1}"   # reprint every N points of coverage
 TOTAL_SECONDS=$((END - START))
 COVERED_FILE="$TMP/covered.tsv"
 : > "$COVERED_FILE"
@@ -83,8 +68,6 @@ BLOCKS=(' ' '▏' '▎' '▍' '▌' '▋' '▊' '▉' '█')
 
 fmt_hms() { local s="$1"; printf '%dh%02dm' $((s / 3600)) $(((s % 3600) / 60)); }
 
-# Records a resolved leaf window (fresh fetch or cache hit); reprints the bar once coverage has
-# advanced by at least PROGRESS_STEP points since the last time.
 mark_covered() {
   local s="$1" e="$2" out levels_csv pct bar lvl
   printf '%s\t%s\n' "$s" "$e" >> "$COVERED_FILE"
@@ -123,8 +106,7 @@ mark_covered() {
   LAST_PROGRESS_PCT="$pct"
 }
 
-# Cache dir survives across runs (unlike $TMP), keyed below by log group + exact query text +
-# window start/end, so editing the parsing rule can't serve stale rows from an old cache.
+# cache key: log group + query text + window
 CACHE_DIR="${CACHE_DIR:-.query_nexus_cache}"
 
 if [ "$DEBUG" != 0 ]; then
@@ -135,10 +117,7 @@ log "Window: $(fmt_local "$START") .. $(fmt_local "$END")  (offset $TZ_OFFSET)  
 
 # ---------------------------------------------------------------- aws helpers
 
-# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
-# stderr (real errors still print and log to $TMP/aws_errors.log), and retries transient errors
-# (ServiceUnavailableException, throttling...) with backoff — more common now that several queries
-# run at once, and the CLI's own retrying ("reached max retries: 2") isn't enough on its own.
+# aws wrapper: --no-verify-ssl, drops the urllib3 warnings and retries throttling/transient errors
 aws_cli() {
   local errfile outfile rc=0 real attempt max=4
   for ((attempt = 1; attempt <= max; attempt++)); do
@@ -196,10 +175,8 @@ run_query() {
   printf '%s' "$res"
 }
 
-# ---------------------------------------------------------------- step 1: raw fetch, no aggregation here
+# ---------------------------------------------------------------- step 1: raw lines
 
-# Same parsing rule as consultaNexusPasoPaso.sh (field names kept for downstream compatibility),
-# but no `stats ... by` here — this only fetches raw matching lines, aggregated once in step 2.
 read -r -d '' QUERY <<'EOF' || true
 fields @timestamp, @ptr, @message
 | parse @message /\[(?<rquid>[a-f0-9\-]+)\].*\[(?<servicio>\/[^\]]+)\].*\[(?<Paso>[^\[\]]+)\]\[(?<Tiempo>[^\[\]]+)\]$/
@@ -212,17 +189,13 @@ CACHE_KEY_DIR="$CACHE_DIR/$(printf '%s' "${LOG_GROUP#/}" | tr -c 'A-Za-z0-9_.\n-
 mkdir -p "$CACHE_KEY_DIR"
 debug "cache: $CACHE_KEY_DIR"
 
-# Reads piece.json on stdin, never as a jq path argument (MSYS_NO_PATHCONV=1 breaks that for a
-# native jq.exe). Keeps @ptr so duplicate boundary rows can be de-duplicated later, in one pass.
+# @ptr is kept to drop the rows repeated at window boundaries
 ROWS_JQ='
   .results[] | (map({(.field): .value}) | add)
   | {ts: .["@timestamp"], ptr: (.["@ptr"] // null),
      rqid: .rquid, servicio: .servicio, paso: .Paso, tiempo: .Tiempo}'
 
-# ---- upfront cache inventory: consume whatever's already known before touching AWS at all ----
-# Walks the same tree shape through local cache files only (zero AWS calls): a cached leaf feeds
-# its data into the dataset and the bar; a cached split recurses into its children; anything not
-# cached yet is left in $QUEUE for the real fetch loop below.
+# load what is already cached; whatever is missing goes to QUEUE
 scan_cache() {
   local s="$1" e="$2" cache_file split_file mid
   cache_file="$CACHE_KEY_DIR/${s}_${e}.ndjson"
@@ -238,7 +211,7 @@ scan_cache() {
     scan_cache "$mid" "$e"
     return 0
   fi
-  QUEUE+=("$s:$e")   # not cached (yet) -> genuinely needs a live AWS call
+  QUEUE+=("$s:$e")
 }
 
 log "Checking the local cache before fetching anything from AWS..."
@@ -247,14 +220,12 @@ scan_cache "$START" "$END"
 if [ "$LAST_PROGRESS_PCT" = "-100" ]; then
   log "  nothing usable cached yet for this exact range"
 elif awk -v p="$LAST_PROGRESS_PCT" 'BEGIN{exit !(p>=99.95)}'; then
-  log "  already have the full range cached from a previous run — nothing to fetch"
+  log "  full range already cached, nothing to fetch"
 else
-  log "  already have ${LAST_PROGRESS_PCT}% cached from a previous run — fetching the rest now"
+  log "  ${LAST_PROGRESS_PCT}% already cached, fetching the rest"
 fi
 
-# ---- bounded-concurrency work queue --------------------------------------------------------
-# A window too big for one query (>= MAX_ROWS) is only discovered by querying it, so "probe" and
-# "real fetch" are the same job: it either writes final rows or queues two smaller windows.
+# a window over MAX_ROWS is only known after querying it; then its two halves are queued
 declare -A INFLIGHT=()   # pid -> "piece_file:s:e"
 n_jobs=0
 
@@ -269,10 +240,9 @@ launch_next() {
     cat "$cache_file" >> "$RAW.dup"
     log "  cache hit: $(fmt_local "$s") .. $(fmt_local "$e") ($n rows, no AWS call)"
     mark_covered "$s" "$e"
-    return 0   # doesn't touch INFLIGHT/PARALLEL at all, it's instant
+    return 0
   fi
   if [ -f "$split_file" ]; then
-    # known to overflow from a previous run (split point is deterministic) -> queue its children
     mid=$(( (s + e) / 2 ))
     log "  split cache hit: $(fmt_local "$s") .. $(fmt_local "$e") (known to overflow, no AWS call)"
     QUEUE+=("$s:$mid" "$mid:$e")
@@ -290,7 +260,7 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
     launch_next
   done
   [ "${#INFLIGHT[@]}" -gt 0 ] || break
-  wait -n || true   # a failing job's own exit status must not trip `set -e` here; handled below
+  wait -n || true   # exit status is checked per job below
   for pid in "${!INFLIGHT[@]}"; do
     kill -0 "$pid" 2>/dev/null && continue   # still running
     info="${INFLIGHT[$pid]}"; unset 'INFLIGHT[$pid]'
@@ -301,7 +271,7 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
     if [ "$n" -ge "$MAX_ROWS" ] && [ $((e - s)) -gt 1 ]; then
       mid=$(( (s + e) / 2 ))
       log "  $n rows = query limit, splitting: $(fmt_local "$s") | $(fmt_local "$mid") | $(fmt_local "$e")"
-      : > "$CACHE_KEY_DIR/${s}_${e}.split"   # remember: overflows, don't re-probe it next time
+      : > "$CACHE_KEY_DIR/${s}_${e}.split"
       QUEUE+=("$s:$mid" "$mid:$e")
     else
       [ "$n" -lt "$MAX_ROWS" ] || log "  WARNING: $n rows within 1 second ($(fmt_local "$s")); rows beyond the limit are lost"
@@ -312,7 +282,6 @@ while [ "${#QUEUE[@]}" -gt 0 ] || [ "${#INFLIGHT[@]}" -gt 0 ]; do
     rm -f "$piece"
   done
 done
-# force one final render, unless the last real leaf already landed on ~100% on its own
 awk -v p="$LAST_PROGRESS_PCT" 'BEGIN{exit !(p<99.95)}' && PROGRESS_STEP=0 mark_covered "$START" "$START"
 
 if [ ! -s "$RAW.dup" ]; then
@@ -321,11 +290,11 @@ if [ ! -s "$RAW.dup" ]; then
   exit 0
 fi
 
-# boundary duplicates (Insights ranges are inclusive on both ends) removed once, exactly, by @ptr
+# Insights ranges include both ends, so boundary rows come twice
 jq -s -c 'unique_by(.ptr) | .[]' < "$RAW.dup" | tr -d '\r' > "$RAW"
 log "  -> $(awk 'END{print NR}' "$RAW.dup") rows fetched, $(awk 'END{print NR}' "$RAW") unique after de-duplicating boundary overlaps"
 
-# ---------------------------------------------------------------- step 2: aggregate ONCE, over everything
+# ---------------------------------------------------------------- step 2: aggregate
 
 log "Step 2: aggregating by rquid+servicio over the full dataset -> $OUTPUT_FILE"
 echo "$CSV_HEADER" > "$OUTPUT_FILE"

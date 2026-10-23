@@ -1,44 +1,24 @@
 #!/usr/bin/env bash
-# Daily Nexus status report as a plain-text list ready to paste into a chat (no tables): summary KPIs,
-# top 5 services by adapter error % with their 2 most frequent errors, p95 latency (API Gateway) and
-# error % per service, mapping errors like the Dynatrace "ERRORES DE MAPEO" tile, 504 timeouts and other
-# technical errors. The channel comes from the adapter X-Name: the top 5 shows which channels fail on each
-# service. Every query aggregates inside CloudWatch (stats), so percentages cover 100% of the window and
-# results stay far below the 10,000-row limit even on -w/-wl. All queries are submitted at once.
-# Self-contained on purpose (copy-paste this single file). The log group lists below mirror the SOURCE
-# lines of cloudwatch/Nexus.json; when the dashboard gains or drops a log group, update them here too.
+# Daily Nexus status report as plain text for the team chat: KPIs, top 5 services by adapter error %
+# with their channels and main errors, p95 per service, mapping errors, 504 timeouts and other errors.
+# Every query uses stats, so it covers the whole window without hitting the 10,000-row limit.
 #
-# Usage:  ./daily_report.sh                                   # yesterday 17:00 -> today 08:00 (Colombia time, UTC-5)
-#         ./daily_report.sh -w                                # weekend, run on Monday: Friday 17:00 -> today 08:00
-#         ./daily_report.sh -wl                               # weekend + Monday holiday, run on Tuesday: Friday 17:00 -> today 08:00
-#         ./daily_report.sh "YYYY-MM-DD HH:MM:SS" ["YYYY-MM-DD HH:MM:SS"]   # explicit start [and end]
-# Output: results/daily_<start>__<end>/report.txt (also printed to stdout) and one CSV per section
+# Usage: ./daily_report.sh                yesterday 17:00 -> today 08:00 (Colombia time, UTC-5)
+#        ./daily_report.sh -w             on Monday: Friday 17:00 -> today 08:00
+#        ./daily_report.sh -wl            on Tuesday after a Monday holiday: Friday 17:00 -> today 08:00
+#        ./daily_report.sh "<start>" ["<end>"]
+# Output: results/daily_<start>__<end>/report.txt (also printed) and one CSV per section
 #
-# Requires: aws cli v2 (active credentials/profile: AWS_PROFILE), jq, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, DEBUG (0/1/2),
-#                    START_TIME   default window start, time of day yesterday (default 17:00)
-#                    END_TIME     default window end, time of day today (default 08:00); before that hour
-#                                 the window ends now
-#                    thresholds in %, yellow/red: WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (5/10,
-#                                                 also the per-service and per-channel lights)
-#                    TOP_MIN_RESPONSES  services below this volume only fill the "top 5 by error %"
-#                                 when not enough services reach it (default 50)
-#                    CACHE (1 = on [default], 0 = always query AWS), CACHE_DIR (default .daily_report_cache),
-#                    CACHE_DAYS   cached results older than this are deleted at startup (default 7)
-#
-# Cache: every completed query result is stored under CACHE_DIR, keyed by query text + log groups + exact
-# window, so editing a query never serves stale rows. After END_TIME the default window is fixed for the
-# day, so a second run that day (e.g. after changing thresholds) costs no AWS queries; before END_TIME the
-# window ends "now" and nothing hits. A failed run prints the command to retry the
-# same window. A cached result is the snapshot taken when it was fetched (late-ingested logs are not added).
+# Env: AWS_REGION, OUT_BASE, DEBUG (0/1/2), START_TIME (17:00), END_TIME (08:00),
+#      WARN_5XX/CRIT_5XX (1/5), WARN_ADP_ERR/CRIT_ADP_ERR (5/10), TOP_MIN_RESPONSES (50),
+#      CACHE (1), CACHE_DIR (.daily_report_cache), CACHE_DAYS (7)
+# Results are cached per query + window, so running it again for the same window makes no AWS calls.
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-                                              # and crashes on log lines it can't map to that charset
-# Side effect of MSYS2_ARG_CONV_EXCL: an absolute path passed as an ARGUMENT to a native Windows binary
-# (jq.exe) reaches it unconverted (/d/... instead of D:\...). Always feed jq files through stdin.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
+# side effect: jq.exe gets absolute path arguments unconverted, so files go to jq through stdin
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
@@ -46,8 +26,9 @@ DEBUG="${DEBUG:-1}"
 REGION="${AWS_REGION:-us-east-1}"
 TZ_OFFSET="-05:00"                       # Colombia (no DST)
 TZ_SECONDS=-18000
-FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row [{field, value}...] -> {field: value}
+FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row -> {field: value}
 
+# same log groups as cloudwatch/Nexus.json
 API_GROUPS=(
   /aws/api/api_accountsws /aws/api/api_acquiringws /aws/api/api_clientsws /aws/api/api_creditcardsws
   /aws/api/api_insurancesws /aws/api/api_investmentsws /aws/api/api_loansws /aws/api/api_paymentsws
@@ -68,13 +49,11 @@ log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
 debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
 die()   { echo "Error: $*" >&2; exit 1; }
 
-# "YYYY-MM-DD HH:MM:SS" in Colombia time -> epoch seconds
 to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
-# cot_fmt <epoch> <date format>  -> that instant formatted in Colombia time, without needing a tz database
+# cot_fmt <epoch> <format>: Colombia time without needing a tz database
 cot_fmt()  { date -u -d "@$(($1 + TZ_SECONDS))" "+$2"; }
 
-# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
-# stderr (real errors still print and log to $TMP/aws_errors.log).
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -94,8 +73,7 @@ aws_cli() {
   return "$rc"
 }
 
-# cw_submit "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the query id
-# Retries while the account is at its concurrent-query quota (LimitExceededException).
+# cw_submit <query> <start> <end> <log group>...  -> query id; retries while over the concurrent query quota
 cw_submit() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid errfile attempt
@@ -119,7 +97,6 @@ cw_submit() {
   die "start-query still throttled after $attempt attempts"
 }
 
-# cw_collect <query id>  -> polls until the query finishes, prints the results JSON
 cw_collect() {
   local qid="$1" res status polls=0 t0=$SECONDS
   while :; do
@@ -147,8 +124,7 @@ CACHE="${CACHE:-1}"
 CACHE_DIR="${CACHE_DIR:-.daily_report_cache}"
 CACHE_DAYS="${CACHE_DAYS:-7}"
 
-# -w / -wl: the window starts N days back instead of yesterday (weekend run on Monday, or on Tuesday after
-# a Monday holiday), both from Friday START_TIME to today END_TIME
+# -w / -wl start the window on Friday instead of yesterday
 DAYS_BACK=1 MODE=""
 case "${1:-}" in
   -w)  DAYS_BACK=3 MODE="-w (fin de semana)"; shift ;;
@@ -176,7 +152,7 @@ elif [ $# -eq 1 ]; then
   END=$NOW
 else
   END=$(to_epoch "$(cot_fmt "$NOW" %F) ${END_TIME}:00")
-  [ "$END" -le "$NOW" ] || END=$NOW   # run before END_TIME: the window can't end in the future
+  [ "$END" -le "$NOW" ] || END=$NOW   # before END_TIME the window ends now
 fi
 [ "$START" -lt "$END" ] || die "start time must be before end time"
 
@@ -184,21 +160,19 @@ OUT_DIR="${OUT_BASE}/daily_$(cot_fmt "$START" %Y%m%d_%H%M)__$(cot_fmt "$END" %Y%
 TMP="${OUT_DIR}/_intermediate"
 mkdir -p "$TMP"
 
-declare -A QID=() CACHE_OF=()   # "=()" matters: under set -u a never-assigned array is unbound
+declare -A QID=() CACHE_OF=()   # =() is needed under set -u
 
-# a failure (in submit or collect) must not leave started queries running (and billing) in AWS;
-# stopping one that already completed just fails quietly
+# don't leave queries running (and billing) in AWS after a failure
 stop_submitted() {
   local n stopped=0
   for n in "${!QID[@]}"; do
-    [ -n "${QID[$n]}" ] || continue   # a failed submit is assigned an empty id
+    [ -n "${QID[$n]}" ] || continue
     aws_cli logs stop-query --region "$REGION" --query-id "${QID[$n]}" >/dev/null 2>&1 || true
     stopped=$((stopped + 1))
   done
   if [ "$stopped" -gt 0 ]; then log "  sent stop to $stopped started quer(y/ies)"; fi
 }
 
-# on any failure: stop what's running, then print how to retry this exact window reusing the cache
 RETRY_CMD="$0 \"$(cot_fmt "$START" '%F %T')\" \"$(cot_fmt "$END" '%F %T')\""
 on_exit() {
   local rc=$?
@@ -222,7 +196,7 @@ if [ "$DEBUG" != 0 ]; then
   debug "$(aws --version 2>&1 | tr -d '\r') | jq $(jq --version | tr -d '\r') | PYTHONIOENCODING=$PYTHONIOENCODING PYTHONUTF8=$PYTHONUTF8"
 fi
 
-# ---------------------------------------------------------------- queries (same logic as the General dashboard widgets)
+# ---------------------------------------------------------------- queries
 
 API_BASE='fields @timestamp, @log, resourcePath, responseLatency, status, httpMethod
 | filter isPresent(httpMethod) AND isPresent(status)'
@@ -247,16 +221,14 @@ add_query api_by_api api "$API_BASE
 | sort s5xx desc, s4xx desc
 | limit 100"
 
-# Per-service latency: end-to-end at the API Gateway. The service is the last resourcePath segment (the
-# CW Nexus dashboard filters resourcePath by the Servicio regex); the report matches it to the
-# adapter X-Referer service case-insensitively. Adapter HTTP codes give the error rate (SOAP answers 200).
+# p95 per service at the API Gateway: the service is the last resourcePath segment, matched later to
+# the adapter X-Referer service ignoring case
 add_query api_by_service api "$API_BASE
 | parse resourcePath /(?<servicio>[^\/]+)\$/
 | stats count(*) as total, pct(responseLatency, 95) as p95 by servicio
 | limit 1000"
 
-# Errors = responses WITH a parsed HTTP code that is neither 2xx nor 412: a line whose code could not be
-# read is not an error (same fix as the Dynatrace "unknown" outcome).
+# error = a parsed HTTP code that is neither 2xx nor 412; lines without a code don't count
 add_query adp_kpi adapter "$ADP_RESP
 | stats count(*) as total, count(codigo) as con_codigo, count(ok) as ok_2xx, count(negocio) as negocio_412"
 
@@ -273,7 +245,6 @@ add_query adp_peak adapter "$ADP_RESP
 | sort errores desc
 | limit 1"
 
-# Specific adapter error (same as the Dynatrace "RQUIDS CON ERROR 4XX/5XX" columns), grouped.
 add_query adp_errors adapter "$ADP_RESP
 | filter codigo not like /^2/ and codigo != \"412\"
 | parse @message /\"system\":\"(?<sistema>[^\"]*)\"/
@@ -284,13 +255,10 @@ add_query adp_errors adapter "$ADP_RESP
 | sort total desc
 | limit 1000"
 
-# Mapping errors, translated from the Dynatrace "ERRORES DE MAPEO" tile. The line looks like
+# GenericExceptionMapper lines look like
 #   Exception: 400 :: <errorMsg> .<DIRECTION>: <rule with %1 %2 %3>. 1=<p1>, 2=<p2>, 3=<p3> ::HEAD::
-# The field is p3 when the rule says "para: %3", otherwise p1. ex1..ex3 (latest p1..p3 of the group)
-# fill the rule into an example, like the Dynatrace "example" column; the user wants it in the chat text
-# even though p1..p3 can be customer values. errorMsg stops at the first "." (what follows is raw backend
-# data). Rendering splits the rows: Exception 504 = timeouts, HttpCode 400 = mapping, anything else = other
-# technical errors (e.g. Exception 1111 "conexion rehusada" under HttpCode 503, which is not a mapping error).
+# The field is p3 when the rule says "para: %3", else p1; ex1..ex3 fill the rule for the example.
+# In the report: Exception 504 = timeout, HttpCode 400 = mapping error, anything else = other errors.
 add_query adp_exceptions adapter 'fields @message, @log
 | filter @message like /GenericExceptionMapper/ and @message like /HttpCode::/
 | parse @log /\/aws\/ecs\/srv\/(?<adapter>\S+)$/
@@ -328,7 +296,7 @@ groups_of() {
 
 # ---------------------------------------------------------------- submit all, then collect
 
-# cache_file <name> <start> <end>  -> where that query's result for that exact window is cached
+# cache key: query text + log groups + exact window
 cache_file() {
   local key
   key=$({ printf '%s\n' "${Q_TEXT[$1]}"; groups_of "${Q_KIND[$1]}"; } | cksum | cut -d' ' -f1)
@@ -356,7 +324,7 @@ log "${#Q_TEXT[@]} queries: $hits from the cache, ${#QID[@]} sent to AWS"
 if [ "${#QID[@]}" -gt 0 ]; then log "Collecting results"; fi
 for name in "${!QID[@]}"; do
   cw_collect "${QID[$name]}" > "$TMP/$name.json"
-  if [ "$CACHE" = 1 ]; then   # write-then-rename: an interrupted copy never leaves a half file behind
+  if [ "$CACHE" = 1 ]; then
     cp "$TMP/$name.json" "${CACHE_OF[$name]}.part" && mv "${CACHE_OF[$name]}.part" "${CACHE_OF[$name]}"
   fi
 done
@@ -372,7 +340,7 @@ done
 
 # ---------------------------------------------------------------- CSVs
 
-to_csv() {   # Insights results JSON on stdin -> CSV; header = every field seen (Insights omits null fields)
+to_csv() {   # header = every field seen, Insights leaves out null fields
   jq -r "[$FLAT] | if length == 0 then empty else
            (reduce (.[] | keys_unsorted[]) as \$x ([]; if any(.[]; . == \$x) then . else . + [\$x] end)) as \$k
            | (\$k | @csv), (.[] | [.[\$k[]]] | @csv) end" | tr -d '\r'
@@ -404,13 +372,11 @@ peak_label=""
     def pct(a; b): if b > 0 then (a * 1000 / b | round) / 10 else 0 end;
     def pc: tostring | sub("\\."; ",");                                 # 97.2 -> "97,2" (es-CO)
     def light(v; w; c): if v >= c then "🔴" elif v >= w then "🟡" else "🟢" end;
-    # every light says which value and which threshold set it, e.g. "🔴 error 12,3% ≥ 10%"
     def why(v; w; c): if v >= c then "≥ \(c | pc)%" elif v >= w then "≥ \(w | pc)%" else "< \(w | pc)%" end;
     def lit(what; v; w; c): "\(light(v; w; c)) \(what) \(v | pc)% \(why(v; w; c))";
     def band(w; c): "🟢 menos de \(w | pc)%, 🟡 de \(w | pc)% a \(c | pc)%, 🔴 \(c | pc)% o más";
     def cut(n): (. // "") | if length > n then .[0:n - 1] + "…" else . end;
-    # a rule parameter can be a whole backend record (hundreds of chars, padded with spaces): collapse the
-    # spaces and keep only its start + length, so the rest of the rule ("no es un list valido, para: X") shows
+    # a parameter can be a whole backend record: keep its start and length
     def short(n): gsub("\\s+"; " ") | if length > n then .[0:n] + "… (\(length) caracteres)" else . end;
     def svc: if (. // "") == "" then "(sin servicio)" else . end;
     def chan: if (. // "") == "" then "(sin canal)" else . end;
@@ -427,17 +393,16 @@ peak_label=""
   | ([$checks[].light] | if any(. == "🔴") then "🔴" elif any(. == "🟡") then "🟡" else "🟢" end) as $overall
   | ($checks | map(select(.light != "🟢") | "\(.name) con \(.what) \(.v | pc)% (\(why(.v; .w; .c)))")
      | if length == 0 then "todo bajo los umbrales" else join(", ") end) as $reason
-  # per service: adapter totals/errors (summed over channels) + API Gateway p95 matched by lowercase name
+  # per service: adapter totals and errors + API Gateway p95
   | ($d.api_by_service | map({key: (.servicio // "" | ascii_downcase), value: .}) | from_entries) as $lat
   | ($d.adp_by_service | group_by(.servicio // "")
      | map({servicio: (.[0].servicio // ""), total: (map(.total | num) | add), error: (map(.error | num) | add)})
      | map(. + {pct: pct(.error; .total), p95: $lat[.servicio | ascii_downcase].p95})) as $svcs
-  # volume weighs first: services with >= minr responses rank by error %; low-volume ones (e.g. "1 of 1 =
-  # 100%") only fill the top 5 when not enough services reach the threshold
+  # services under minr responses only fill the top 5 when there are not enough others
   | ($svcs | map(select(.error > 0) | . + {low: (.total < $th.minr)})
      | sort_by(.low, -.pct, -.error) | .[0:5]) as $top
   | ($d.adp_exceptions | map(select(.code == "504")) | sumby(.service // "")) as $timeouts
-  # mapping errors grouped like the Dynatrace tile (without channel); the example comes from the biggest row
+  # mapping errors without channel; the example comes from the biggest row
   | ($d.adp_exceptions | map(select(.code != "504" and .httpCode == "400"))
      | group_by([.direction, .rule, .campo, .adapter, .service])
      | map(max_by(.total | num) + {total: (map(.total | num) | add)}) | sort_by(-.total)) as $mapping
@@ -470,12 +435,12 @@ peak_label=""
       ($top | to_entries | map(.key as $i | .value as $s
         | ["\($i + 1). \(light($s.pct; $th.wa; $th.ca)) \($s.servicio | svc): \($s.pct | pc)% de error (\($s.error | fmt) de \($s.total | fmt))"
            + (if $s.low then ", poco volumen" else "" end)]
-          # which channels fail on this service (adapter X-Name), worst 3 by error count
+          # worst 3 channels
           + ([$d.adp_by_service[] | select((.servicio // "") == $s.servicio)
               | {canal: (.canal // ""), total: (.total | num), error: (.error | num)}]
              | map(select(.error > 0) | . + {pct: pct(.error; .total)}) | sort_by(-.error) | .[0:3]
              | map("   - Canal \(.canal | chan): \(light(.pct; $th.wa; $th.ca)) \(.pct | pc)% de error (\(.error | fmt) de \(.total | fmt))"))
-          # its 2 most frequent errors, each with the channels where it shows up
+          # top 2 errors and their channels
           + ([$d.adp_errors[] | select((.servicio // "") == $s.servicio)]
              | group_by([.codigo, .sistema, .errorMensaje])
              | map({row: .[0], total: (map(.total | num) | add),

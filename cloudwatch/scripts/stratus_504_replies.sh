@@ -1,41 +1,27 @@
 #!/usr/bin/env bash
-# For every Stratus adapter response with HTTP 504 (backend timeout) in the window, checks whether Stratus ever
-# answered that transaction: did Stratus answer late, or never answer? A reply shows up as either line:
-#   "(Thread socket <n>) [TX] Se notifico la respuesta de stratus para la transaccion X-RqUID=<rquid>, txId=<tx>, ...
-#    tiempo total de espera de stratus: <n> ms"        (adapter still waiting)
-#   "(Thread socket <n>) [TX] Se recibio respuesta stratus despues de timeout, X-RqUID=null, txId=<tx>, receiveTime=..."
-#                                                      (adapter already gave up: no rquid, only the txId)
-# Self-contained on purpose (copied as a single file to machines without this repo): no lib/.
+# For each Stratus adapter response with HTTP 504 in the window, checks if Stratus answered later.
+# A reply is one of these lines:
+#   "... Se notifico la respuesta de stratus para la transaccion X-RqUID=<rquid>, txId=<tx>, ...
+#    tiempo total de espera de stratus: <n> ms"
+#   "... Se recibio respuesta stratus despues de timeout, X-RqUID=null, txId=<tx>, ..."   (only the txId)
+# Replies are searched up to NOTIFY_MINUTES after each 504.
 #
-# Step 1 lists the ::AUDIT::RESP:: ... ::HTTPCODE::504 lines (one per transaction) plus the GenericExceptionMapper
-# "HttpCode:: 504 ... transactionId: <tx>" lines that carry the txId; step 2 looks for the replies of just those
-# transactions, in batches (by txId, or by rquid when the txId is unknown), from 1 min before their 504 up to
-# NOTIFY_MINUTES after it (Stratus may answer after the adapter gave up).
+# Usage: ./stratus_504_replies.sh [-c cluster] "<start>" "<end>"
+#   -c  ws cluster, e.g. loansws (default: all)
+#   start/end: "YYYY-MM-DD HH:MM:SS", Colombia time (UTC-5)
+# Output: results/stratus504_<cluster|all>_<start>-<end>/<same name>.csv
+#   stratus_wait_ms     "tiempo total de espera de stratus" (only on "Se notifico" lines)
+#   reply_after_504_ms  reply time - 504 time
+#   reply_kind          notified / after_timeout
 #
-# Usage:  ./stratus_504_replies.sh [-c cluster] "<start>" "<end>"
-#           -c  only this ws cluster's Stratus adapter, e.g. loansws (default: all of them)
-#           start/end: "YYYY-MM-DD HH:MM:SS", Colombia local time (UTC-5)
-# Example: ./stratus_504_replies.sh -c loansws "2026-10-06 00:00:00" "2026-10-06 18:00:00"
-# Output: results/<name>/<name>.csv, by 504 time, where <name> = stratus504_<cluster|all>_<start>-<end>
-#   resp_time          time of the 504 (date written at the start of the message, Colombia time)
-#   stratus_replied    yes / no: whether a reply line exists for that transaction
-#   reply_time         time of the reply line
-#   stratus_wait_ms    "tiempo total de espera de stratus" from a "Se notifico" line (empty for after_timeout)
-#   reply_after_504_ms reply_time - resp_time (positive = Stratus answered after the adapter gave up)
-#   tx_id              adapter transactionId (from the 504 error line)
-#   reply_kind         notified / after_timeout: which of the two reply lines was found
-#   reply_socket       socket whose receiver thread got the reply
-#
-# Requires: aws cli v2 (credentials from the environment), jq, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE (default results), DEBUG (0 = quiet, 1 = verbose [default], 2 = set -x),
-#                    CHUNK_MINUTES (step-1 slice, default 60), MAX_PARALLEL (queries at once, default 10),
-#                    BATCH_SIZE (rquids per step-2 query, default 100), NOTIFY_MINUTES (default 10)
+# Env: AWS_REGION, OUT_BASE, DEBUG (0/1/2), CHUNK_MINUTES (60), MAX_PARALLEL (10), BATCH_SIZE (100),
+#      NOTIFY_MINUTES (10)
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-# Side effect of MSYS2_ARG_CONV_EXCL: never pass a file path as an argument to jq.exe; feed it through stdin.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
+# side effect: jq.exe gets absolute path arguments unconverted, so files go to jq through stdin
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
@@ -43,7 +29,7 @@ DEBUG="${DEBUG:-1}"
 REGION="${AWS_REGION:-us-east-1}"
 TZ_OFFSET="-05:00"                       # Colombia (no DST)
 TZ_SECONDS=-18000
-FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row [{field, value}...] -> {field: value}
+FLAT='.results[] | (map({(.field): .value}) | add)'   # Insights row -> {field: value}
 
 STRATUS_GROUPS_ALL=(
   /aws/ecs/srv/accountsws-stratus-adapter /aws/ecs/srv/acquiringws-stratus-adapter
@@ -58,10 +44,9 @@ log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
 debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
 die()   { echo "Error: $*" >&2; exit 1; }
 
-# "YYYY-MM-DD HH:MM:SS" in Colombia time -> epoch seconds
 to_epoch() { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
 
-# Every AWS call goes through here: applies --no-verify-ssl and strips urllib3 warning noise from stderr.
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -73,8 +58,8 @@ aws_cli() {
   return "$rc"
 }
 
-# cw_submit "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the query id
-# Retries while the account is at its concurrent-query quota or over the StartQuery request rate.
+# cw_submit <query> <start> <end> <log group>...  -> query id
+# retries on the concurrent query quota and on StartQuery throttling
 cw_submit() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid errfile attempt
@@ -99,7 +84,6 @@ cw_submit() {
   die "start-query still throttled after $attempt attempts"
 }
 
-# cw_collect <query id>  -> polls until the query finishes, prints the results JSON
 cw_collect() {
   local qid="$1" res status t0=$SECONDS
   while :; do
@@ -115,8 +99,7 @@ cw_collect() {
   printf '%s' "$res"
 }
 
-# run_parallel <prefix>  -> runs the queries queued in PQ_QUERY/PQ_START/PQ_END against LOG_GROUPS,
-# MAX_PARALLEL at a time (submit a wave, then collect it), into $TMP/<prefix>_<i>.json. Clears the queue.
+# run_parallel <prefix>: runs the queued PQ_* queries MAX_PARALLEL at a time into $TMP/<prefix>_<i>.json
 run_parallel() {
   local prefix="$1" n=${#PQ_QUERY[@]} i j
   local -a qids=()
@@ -182,9 +165,8 @@ HEADER="trx,resp_time,adapter,service,channel,stratus_replied,reply_time,stratus
 
 debug "region=$REGION window=$START..$END cluster=${CLUSTER:-all} notify_window=${NOTIFY_MINUTES}min out=$OUT_DIR"
 
-# msgTs = epoch ms of the date at the start of the message. Insights can't parse a date string, so the
-# message's time of day is compared with @timestamp's (in TZ_OFFSET) and the difference, wrapped to +-12 h,
-# is added to @timestamp; that also gets the day right around midnight. Falls back to @timestamp.
+# msgTs: epoch ms of the date written in the message. Insights can't parse dates, so the difference
+# between the message time of day and @timestamp's (wrapped to +-12 h) is added to @timestamp.
 tz_ms=$(( (10#${TZ_OFFSET:1:2} * 60 + 10#${TZ_OFFSET:4:2}) * 60000 ))
 if [ "${TZ_OFFSET:0:1}" = "-" ]; then TZ_SHIFT="- $tz_ms"; else TZ_SHIFT="+ $tz_ms"; fi
 MSG_TIME="
@@ -216,9 +198,8 @@ n_slices=${#PQ_QUERY[@]}
 log "  ${n_slices} slice(s) of ${CHUNK_MINUTES} min, up to ${MAX_PARALLEL} at a time"
 run_parallel 1_504
 
-# One row per transaction (earliest 504 if it repeats), with the txId of its error line ("" if there is none).
-# @log is "<account>:<log group>": keep the adapter name.
-# trx<TAB>resp_ms<TAB>channel<TAB>service<TAB>adapter<TAB>tx_id
+# one row per transaction (earliest 504) with the txId of its error line
+# trx, resp_ms, channel, service, adapter, tx_id
 for ((j = 0; j < n_slices; j++)); do jq -c "$FLAT" < "$TMP/1_504_$j.json"; done | tr -d '\r' | jq -s -r '
   map(. + {resp: (.msgTs | tonumber)}) | group_by(.trx)
   | map(min_by(.resp) + {txId: ((map(.txId // empty) | .[0]) // "")}) | sort_by(.resp) | .[]
@@ -232,9 +213,8 @@ log "  -> $n504 transaction(s) with 504"
 # ---------------------------------------------------------------- step 2: the Stratus notifications
 
 log "Step 2: Stratus replies for those transactions (up to ${NOTIFY_MINUTES} min after the 504)"
-# Batches of transactions close in time; each scans [first 504 - 60 s, last 504 + NOTIFY_MINUTES], never past now.
-# A late reply has X-RqUID=null, so each transaction is matched by "txId=<tx>," (by rquid if its txId is unknown).
-# Lines: <start epoch>\t<end epoch>\t<txId=1,|txId=2,|rquid|...>
+# late replies have X-RqUID=null, so they are matched by txId (by rquid when the txId is unknown)
+# <start>\t<end>\t<txId=1,|txId=2,|rquid|...>
 jq -R -s -r --argjson n "$BATCH_SIZE" --argjson after "$((NOTIFY_MINUTES * 60))" --argjson now "$(date +%s)" '
   split("\n") | map(select(length > 0) | split("\t") | {trx: .[0], resp: (.[1] | tonumber), txId: (.[5] // "")})
   | [range(0; length; $n) as $i | .[$i:$i + $n]] | .[]
@@ -269,9 +249,8 @@ jq -R -s 'split("\n") | map(select(length > 0) | split("\t")
   < "$TMP/1_504.tsv" > "$TMP/504.json"
 jq -s '.' < "$TMP/2_replies.ndjson" > "$TMP/replies.json"
 
-# Replies are keyed by adapter + txId (txIds are only unique per adapter), and by rquid for "Se notifico" lines.
+# txIds are only unique per adapter
 cat "$TMP/504.json" "$TMP/replies.json" | jq -s -r --arg header "$HEADER" --argjson tz "$TZ_SECONDS" '
-  # epoch ms -> "YYYY-MM-DD HH:MM:SS.mmm" in Colombia time
   def local_time: ((. / 1000 | floor) + $tz | strftime("%Y-%m-%d %H:%M:%S")) + "." + ("00\(. % 1000)" | .[-3:]);
   def first_by(k): map(select(k != null and k != "")) | group_by(k) | map({key: (.[0] | k), value: min_by(.ts)})
                    | from_entries;

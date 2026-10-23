@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
-# Extracts the full transactions (by RQID) that had an ERROR in CloudWatch Logs,
-# grouped by service, into one CSV per service.
+# Pulls every line of the transactions (by rqid) that logged an ERROR in the mngr log groups and
+# writes one CSV per service.
+#   1. rqids with ERROR in the *-mngr log groups
+#   2. all the lines of those rqids, in their mngr group and its *-stratus-adapter group if it exists
+#   3. service of each rqid, one CSV per service
 #
-#   Step 1: in the 11 *-mngr log groups, filter @message like 'ERROR' and extract RQID + @log.
-#   Step 2: for each @log, fetch ALL the lines of those RQIDs, querying only its own log group
-#           (and its *-stratus-adapter companion, if it exists).
-#   Step 3: classify each RQID by service and write one CSV per service.
-#
-# Usage:  ./extract_error_traces.sh "2026-09-21 15:00:00" "2026-09-21 15:30:00"
-#         (times are Colombia local time, UTC-5)
-# Output: results/<startdate>_<starttime>__<enddate>_<endtime>/<service>.csv
-#
-# Requires: aws cli v2 (with active credentials/profile: AWS_PROFILE), jq, gawk/awk, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, BATCH_SIZE, PAD_SECONDS, ERROR_PATTERN,
-#                    SERVICE_REGEX, OPERATION_REGEX, DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
+# Usage: ./extract_error_traces.sh "2026-09-21 15:00:00" "2026-09-21 15:30:00"   (Colombia time, UTC-5)
+# Output: results/<start>__<end>/<service>.csv and _summary.csv
+# Env: AWS_REGION, OUT_BASE, BATCH_SIZE, PAD_SECONDS, ERROR_PATTERN, SERVICE_REGEX, OPERATION_REGEX,
+#      DEBUG (0/1/2, 1 also keeps the raw batch JSONs)
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-                                              # and crashes on log lines it can't map to that charset
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
 
-DEBUG="${DEBUG:-1}"                      # 0 = quiet, 1 = verbose logs + raw batch JSONs (default), 2 = also set -x
+DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -29,7 +23,7 @@ OUT_BASE="${OUT_BASE:-results}"
 BATCH_SIZE="${BATCH_SIZE:-100}"          # RQIDs per query in step 2 (query length limit: 10,000 chars)
 PAD_SECONDS="${PAD_SECONDS:-300}"        # margin before/after the window for step 2
 ERROR_PATTERN="${ERROR_PATTERN:-ERROR}"
-# How the "service" of each RQID is determined (tried in order over ALL the lines of the RQID):
+# service of each rqid: first SERVICE_REGEX match in its lines, else OPERATION_REGEX, else NO_SERVICE
 SERVICE_REGEX="${SERVICE_REGEX:-/ESBService/([A-Za-z0-9_]+)}"
 OPERATION_REGEX="${OPERATION_REGEX:-<nombreOperacion>([^<]+)</nombreOperacion>}"
 TZ_OFFSET="-05:00"                       # Colombia
@@ -49,15 +43,13 @@ LOG_GROUPS=(
   /aws/ecs/srv/securityws-mngr
 )
 
-# Companion log group of each *-mngr. ADJUST if the real name is different.
 companion_group() { printf '%s-stratus-adapter' "${1%-mngr}"; }
 
 log()   { echo "[$(date +%H:%M:%S)] $*" >&2; }
 debug() { if [ "$DEBUG" != 0 ]; then log "DEBUG: $*"; fi; }
 die()   { echo "Error: $*" >&2; exit 1; }
 
-# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
-# stderr (real errors still print and log to $TMP/aws_errors.log).
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -103,7 +95,7 @@ F_CLASSIFIED="$TMP/3_classified.ndjson"
 
 # ---------------------------------------------------------------- helpers
 
-# run_query "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the results JSON
+# run_query <query> <start> <end> <log group>...  -> results JSON
 run_query() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid res status polls=0 t0=$SECONDS
@@ -136,7 +128,6 @@ group_exists() {
   [ -n "$found" ]
 }
 
-# Converts Logs Insights results[] into {field: value} objects
 FLAT='.results[] | (map({(.field): .value}) | add)'
 
 # ---------------------------------------------------------------- step 1
@@ -192,7 +183,7 @@ step2_full_transactions() {
       run_query "$q" "$((START - PAD_SECONDS))" "$((END + PAD_SECONDS))" "${targets[@]}" > "$TMP/2_batch.json"
       [ "$DEBUG" = 0 ] || cp "$TMP/2_batch.json" "$TMP/debug_batch_${g##*/}_$i.json"
 
-      # Assigns to each line the RQID (from the list) contained in its message
+      # tag each line with the rqid it contains
       jq -c --argjson ids "$idsjson" "$FLAT"' as $r
             | $r["@message"] as $m
             | ($ids | map(select(. as $id | $m | contains($id))) | first) as $rq
@@ -217,7 +208,6 @@ step3_group_by_service() {
   log "Step 3: grouping by service -> $OUT_DIR"
   [ -s "$F_TRACES" ] || { log "No traces collected. Done."; exit 0; }
 
-  # Service per RQID: SERVICE_REGEX, else OPERATION_REGEX, else NO_SERVICE
   jq -s -c --arg re1 "$SERVICE_REGEX" --arg re2 "$OPERATION_REGEX" '
     def first_match($re): [ .[] | .message | scan($re) | (if type == "array" then .[0] else . end) ] | first;
     group_by(.rqid)

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Splits a file into unique lines and duplicate lines, preserving original order. The first
-# occurrence of each line goes to the clean file; every later occurrence of that same line goes
-# to the duplicates file. Does not touch the input file.
+# Splits a file into unique lines and repeated lines, keeping the original order. The first
+# occurrence goes to the clean file, later ones to the duplicates file.
 #
-# Usage:  ./dedupe_lines.sh <file> [clean_output] [duplicates_output]
-# Defaults: clean_output = <file>_deduped.<ext>, duplicates_output = <file>_duplicates.<ext>
+# Usage: ./dedupe_lines.sh <file> [clean_output] [duplicates_output]
 set -euo pipefail
 
 [ $# -ge 1 ] && [ -f "$1" ] || { echo "Usage: $0 <file> [clean_output] [duplicates_output]" >&2; exit 1; }
@@ -16,7 +14,7 @@ ext="${INPUT##*.}"
 CLEAN="${2:-${base}_deduped${ext}}"
 DUPES="${3:-${base}_duplicates${ext}}"
 
-: > "$CLEAN"; : > "$DUPES"   # always create both, even if one ends up empty
+: > "$CLEAN"; : > "$DUPES"
 
 awk -v clean="$CLEAN" -v dupes="$DUPES" '
 {

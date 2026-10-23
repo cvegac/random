@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Adds N hours (default 5) to every "YYYY-MM-DD HH:MM:SS[.mmm]" timestamp in a CSV.
-# Handles day/month/year rollover (leap years included). Only needs bash + awk.
 #
 # Usage: ./add_hours.sh file.csv [hours] [output.csv]
-# e.g.:  ./add_hours.sh productsws-mngr-2026-09-20.csv 5
 set -euo pipefail
 
 if [ $# -lt 1 ] || [ ! -f "$1" ]; then

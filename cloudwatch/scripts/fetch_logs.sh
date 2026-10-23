@@ -1,24 +1,17 @@
 #!/usr/bin/env bash
-# Dumps raw CloudWatch Logs of one or more log groups over a date range, fetched in time chunks.
-# Nothing is parsed or grouped: one CSV per log group, named <log-group>_<start>__<end>.csv.
+# Dumps the raw logs of one or more log groups over a date range, one CSV per log group.
+# Insights returns at most 10,000 rows per query, so the range goes in chunks and a chunk that
+# hits the limit is split in half until it fits.
 #
-# Chunking exists because Logs Insights returns at most 10,000 rows per query. If a chunk hits
-# that limit it is split in half automatically (recursively) so no logs are lost.
-#
-# Usage:  ./fetch_logs.sh "2026-09-20 00:00:00" "2026-09-20 06:00:00" /aws/ecs/srv/productsws-mngr [more log groups...]
-#         (times are Colombia local time, UTC-5)
-# Output: logs_output/aws_ecs_srv_productsws-mngr_20260920_000000__20260920_060000.csv  (colombia_time,message)
-#
-# Requires: aws cli v2 (with active credentials/profile: AWS_PROFILE), jq, gawk/awk, GNU date.
-# Optional env vars: AWS_REGION, OUT_BASE, CHUNK_MINUTES (default 30),
-#                    MESSAGE_FILTER (Insights "like" text, e.g. ERROR; default: no filter = all logs),
-#                    DEBUG (0 = quiet, 1 = verbose [default], 2 = also set -x)
+# Usage: ./fetch_logs.sh "2026-09-20 00:00:00" "2026-09-20 06:00:00" /aws/ecs/srv/productsws-mngr [...]
+#        times are Colombia time (UTC-5)
+# Output: logs_output/<log-group>_<start>__<end>.csv (colombia_time,message)
+# Env: AWS_REGION, OUT_BASE, CHUNK_MINUTES (30), MESSAGE_FILTER (Insights "like" text), DEBUG (0/1/2)
 set -euo pipefail
 
-export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # stop Git Bash rewriting "/aws/ecs/..." as a path
-export PYTHONWARNINGS="ignore:Unverified HTTPS request"   # silence urllib3's --no-verify-ssl warning
-export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli's bundled Python defaults to cp1252 on Windows
-                                              # and crashes on log lines it can't map to that charset
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # Git Bash: don't turn /aws/... args into Windows paths
+export PYTHONWARNINGS="ignore:Unverified HTTPS request"
+export PYTHONIOENCODING=utf-8 PYTHONUTF8=1   # aws cli on Windows defaults to cp1252 and fails on some log lines
 
 DEBUG="${DEBUG:-1}"
 [ "$DEBUG" != 2 ] || { export PS4='+ ${LINENO}: '; set -x; }
@@ -42,10 +35,8 @@ command -v jq  >/dev/null || die "jq not found"
 
 to_epoch()  { date -d "$1 ${TZ_OFFSET}" +%s 2>/dev/null || die "invalid date: '$1'"; }
 to_label()  { date -d "$1" +%Y%m%d_%H%M%S; }
-# epoch -> Colombia wall clock (for logs only)
 fmt_local() { date -u -d "@$(( $1 + TZ_OFFSET_SECONDS ))" '+%Y-%m-%d %H:%M:%S'; }
-# epoch -> UTC wall clock (what the CloudWatch console shows)
-fmt_utc()   { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }
+fmt_utc()   { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }   # what the CloudWatch console shows
 
 START=$(to_epoch "$1")
 END=$(to_epoch "$2")
@@ -65,8 +56,7 @@ fi
 
 # ---------------------------------------------------------------- helpers
 
-# Every AWS call goes through here: applies --no-verify-ssl, strips urllib3 warning noise from
-# stderr (real errors still print and log to $TMP/aws_errors.log).
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
 aws_cli() {
   local errfile rc=0 real
   errfile=$(mktemp)
@@ -86,7 +76,7 @@ aws_cli() {
   return "$rc"
 }
 
-# run_query "<query>" <start_epoch> <end_epoch> <log group>...   -> prints the results JSON
+# run_query <query> <start> <end> <log group>...  -> results JSON
 run_query() {
   local query="$1" start="$2" end="$3"; shift 3
   local qid res status polls=0 t0=$SECONDS
@@ -110,7 +100,6 @@ run_query() {
   printf '%s' "$res"
 }
 
-# Query: raw logs, oldest first. The optional filter is the only thing that is not "everything".
 if [ -n "$MESSAGE_FILTER" ]; then
   QUERY="fields @timestamp, @message
 | filter @message like '${MESSAGE_FILTER}'
@@ -122,15 +111,12 @@ else
 | limit ${MAX_ROWS}"
 fi
 
-# results[] -> {ts, ptr, message}, one line per row. No filtering here: pieces (chunks, and their
-# recursive splits) can each return the same row more than once — not just at a shared boundary,
-# Insights can repeat a row within a single query's own results too — so every row is collected
-# with its @ptr and de-duplicated exactly once at the end, instead of guessing at fetch time.
+# the same row can come back more than once (between chunks and even inside one result),
+# so @ptr is kept and the rows are deduplicated once at the end
 ROWS_JQ='
   .results[] | (map({(.field): .value}) | add)
   | {ts: .["@timestamp"], ptr: (.["@ptr"] // null), message: .["@message"]}'
 
-# ts, message -> final CSV row, converting ts to Colombia local time
 FINAL_JQ='
   def col: (.[0:19] | strptime("%Y-%m-%d %H:%M:%S") | mktime + $off | strftime("%Y-%m-%d %H:%M:%S")) + .[19:];
   unique_by(.ptr) | sort_by(.ts) | .[]
@@ -138,7 +124,6 @@ FINAL_JQ='
 
 TOTAL=0
 
-# write_piece: reads $TMP/piece.json, appends its rows (raw, not yet deduplicated) to $RAW_FILE
 write_piece() {
   local n
   jq -c "$ROWS_JQ" < "$TMP/piece.json" | tr -d '\r' >> "$RAW_FILE"
@@ -147,7 +132,7 @@ write_piece() {
   log "    wrote $n rows (total for this log group: $TOTAL, before de-duplication)"
 }
 
-# fetch_range <start_epoch> <end_epoch>   (uses $LG and $RAW_FILE). Splits in half if the limit is hit.
+# fetch_range <start> <end>  (uses $LG and $RAW_FILE), splits in half when the limit is hit
 fetch_range() {
   local s="$1" e="$2" n mid
   run_query "$QUERY" "$s" "$e" "$LG" > "$TMP/piece.json"

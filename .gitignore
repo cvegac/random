@@ -2,3 +2,5 @@
 # script output: real rqids, channels and backend messages, never commit (public repo)
 results/
 .daily_report_cache/
+.slow_transactions_cache/
+logs_output/
