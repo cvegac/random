@@ -1,0 +1,1303 @@
+{
+  "version": "7",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "type": "markdown",
+      "id": "6f46b001-5e22-4f8a-bcb6-eb0dcd75a590",
+      "markdown": "# Nexus · 2. Pipeline, métricas y buckets\n\nLos notebooks de Nexus:\n1. Contexto y línea base: cuánto pesa hoy y qué atributos agrega la ingesta.\n2. Pipeline: ruta, procesadores, métricas y buckets, cada uno con su prueba.\n3. Tablero: las consultas del tablero general sobre métricas y la búsqueda de logs.\n4. Alertas: cada alerta con su query, su prueba y la alerta actual para comparar.\n\n## Ruta y procesadores (etapa Processing)\n\nDónde: Settings > Process and contextualize > OpenPipeline > Logs. Crear un pipeline `nexus` y una\n*dynamic route* con la condición:\n\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\n\nEn la etapa Processing, un procesador DQL por tipo de línea, en este orden (los de abajo pisan\n`nexus.kind` de los de arriba). Cada procesador tiene su *matching condition* y su script: los dos van en bloques\nseparados para copiarlos y pegarlos tal cual. Las condiciones usan `matchesValue`, que acepta `*` al principio y al\nfinal del valor y no distingue mayúsculas de minúsculas.\nCada procesador va con una prueba: corre su condición y su script sobre los logs de los últimos 15 minutos y\nmuestra los atributos que quedarían. Sirve para probar un cambio antes de pegarlo en OpenPipeline. Los atributos\nde los procesadores anteriores salen de lo que ya guardó la ingesta. Estado de cada uno en el tenant: ver Seguimiento.\n"
+    },
+    {
+      "type": "dql",
+      "id": "98491da9-fe17-4561-a3df-58eb2423ea33",
+      "title": "Prueba de la ruta: log groups que entran al pipeline",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// routed = matches the route condition; processed = the pipeline added nexus.cluster\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| fieldsAdd routed = matchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\")), processed = isNotNull(nexus.cluster)\n| summarize lines = count(), by: { aws.log_group, routed, processed }\n| sort aws.log_group asc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "3dbd5e34-b7c9-46e4-8dde-5cd72585ee1b",
+      "markdown": "### Procesador 0. Nivel del log.\nBusca el nivel solo en los primeros 40 caracteres, para que un ERROR o WARN dentro del mensaje no\ncambie el nivel de la línea.\nCondición:\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\nScript:\n```\nfieldsAdd head = substring(content, from: 0, to: 40)\n| fieldsAdd loglevel = if(contains(head, \" ERROR\"), \"ERROR\", else: if(contains(head, \" WARN\"), \"WARN\",\n                       else: if(contains(head, \" INFO\"), \"INFO\", else: if(contains(head, \" DEBUG\"), \"DEBUG\", else: \"NONE\"))))\n| fieldsRemove head\n```"
+    },
+    {
+      "type": "dql",
+      "id": "7eda8434-963b-4908-956f-4f79e88889a2",
+      "title": "Prueba procesador 0: Nivel del log",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 0: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n| fieldsAdd head = substring(content, from: 0, to: 40)\n| fieldsAdd loglevel = if(contains(head, \" ERROR\"), \"ERROR\", else: if(contains(head, \" WARN\"), \"WARN\",\n                       else: if(contains(head, \" INFO\"), \"INFO\", else: if(contains(head, \" DEBUG\"), \"DEBUG\", else: \"NONE\"))))\n| fieldsRemove head\n| fields timestamp, nexus.component, loglevel, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "872ef05d-667a-4906-a37d-f6b91a813df3",
+      "markdown": "### Procesador 1. Contexto común.\nCondición:\n```\nmatchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n```\nScript:\n```\nparse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n```"
+    },
+    {
+      "type": "dql",
+      "id": "cb5eea5c-b280-42d6-bbeb-7c9c356ff053",
+      "title": "Prueba procesador 1: Contexto común",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 1: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\"))\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster_raw 'ws-'\"\n| fieldsAdd nexus.cluster = concat(cluster_raw, \"ws\"),\n            nexus.layer = if(endsWith(aws.log_group, \"-adapter\"), \"adapter\", else: \"mngr\"),\n            nexus.component = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fieldsRemove cluster_raw\n| fields timestamp, nexus.component, nexus.cluster, nexus.layer, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "79b26163-9731-447f-93be-52c48f53f062",
+      "markdown": "### Procesador 2. Headers del adaptador.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::HEAD::[*\")\n```\nScript:\n```\nparse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n```"
+    },
+    {
+      "type": "dql",
+      "id": "0984e284-bf20-4616-b910-c5d739f66651",
+      "title": "Prueba procesador 2: Headers del adaptador",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 2: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::HEAD::[*\")\n| parse content, \"LD 'X-RqUid=' LD:rquid ','\"\n| parse content, \"LD 'X-Name=' LD:channel ','\"\n| parse content, \"LD 'X-Referer=' LD:referer ','\"\n| fieldsAdd nexus.rquid = rquid, nexus.channel = channel, nexus.service = splitString(referer, \"-\")[3]\n| fieldsRemove rquid, channel, referer\n| fields timestamp, nexus.component, nexus.rquid, nexus.channel, nexus.service, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "d638dc57-2d99-4cee-afb4-5cb172948006",
+      "markdown": "### Procesador 3. Respuesta del adaptador.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::AUDIT::RESP::*\")\n```\nScript:\n```\nparse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n```"
+    },
+    {
+      "type": "dql",
+      "id": "c9967446-8164-4a65-8855-8c6013261265",
+      "title": "Prueba procesador 3: Respuesta del adaptador",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 3: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*::AUDIT::RESP::*\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:http_code\"\n| fieldsAdd nexus.kind = \"audit_resp\", nexus.http_code = http_code,\n            nexus.outcome = if(isNull(http_code), \"unknown\", else: if(http_code >= 200 and http_code < 300, \"ok_2xx\",\n                            else: if(http_code == 412, \"business_412\", else: \"error\")))\n| fieldsRemove http_code\n| fields timestamp, nexus.component, nexus.kind, nexus.http_code, nexus.outcome, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "94c40588-4b10-4d86-9b6a-133a75d494a9",
+      "markdown": "### Procesador 4. Excepciones del adaptador (mapeo / 504 / técnicas).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*GenericExceptionMapper*\") and matchesValue(content, \"*HttpCode::*\")\n```\nScript:\n```\nparse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n```\n(`nexus.mapping.field` es el nombre del campo, no su valor: los valores `1=`/`2=` pueden ser datos del cliente.)"
+    },
+    {
+      "type": "dql",
+      "id": "6ca9a1d4-b8a8-4897-9e87-2a496369da93",
+      "title": "Prueba procesador 4: Excepciones del adaptador (mapeo / 504 / técnicas)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 4: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*GenericExceptionMapper*\") and matchesValue(content, \"*HttpCode::*\")\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| parse content, \"LD 'Exception:' SPACE? INT:exc_code\"\n| parse content, \"LD 'Exception:' LD '::' SPACE? LD ' .' ALPHA:direction ':' SPACE? LD:rule '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd nexus.kind = if(exc_code == 504, \"timeout_504\", else: if(http_code == 400, \"mapping_error\", else: \"technical_error\")),\n            nexus.http_code = http_code,\n            nexus.mapping.direction = direction,\n            nexus.mapping.rule = rule,\n            nexus.mapping.field = if(contains(rule, \"para: %3\"), substring(args[2], from: 2), else: args[0])\n| fieldsRemove http_code, exc_code, direction, rule, params, args\n| fields timestamp, nexus.component, nexus.kind, nexus.http_code, nexus.mapping.direction, nexus.mapping.rule, nexus.mapping.field, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "8163e93c-9b84-42fb-a088-cddd37b9268f",
+      "markdown": "### Procesador 5. Tiempo de backend (RSIN).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*RSIN*\")\n```\nScript:\n```\nparse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n```"
+    },
+    {
+      "type": "dql",
+      "id": "992261d9-73c7-4878-a00c-9c9d1497fb4d",
+      "title": "Prueba procesador 5: Tiempo de backend (RSIN)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 5: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*RSIN*\")\n| parse content, \"LD 'RSIN ' LD ':' LD ',3=' DOUBLE:ms_stratus\"\n| parse content, \"LD 'RSIN ' LD ':' LD ', 1=' DOUBLE:ms_iseries\"\n| fieldsAdd nexus.duration_ms = coalesce(ms_stratus, ms_iseries)\n| fieldsAdd nexus.kind = \"backend_time\",\n            nexus.latency_bucket = if(nexus.duration_ms < 100, \"0-100ms\", else: if(nexus.duration_ms < 500, \"100-500ms\",\n                                   else: if(nexus.duration_ms < 1000, \"500ms-1s\", else: if(nexus.duration_ms < 5000, \"1-5s\", else: \"5s+\"))))\n| fieldsRemove ms_stratus, ms_iseries\n| fields timestamp, nexus.component, nexus.duration_ms, nexus.kind, nexus.latency_bucket, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "68b2c2de-fd0c-402b-a8c0-2d71aad4a97f",
+      "markdown": "### Procesador 6. Trazas y pasos del ESB (mngr).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[/*\")\n```\nScript:\n```\nfieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| fieldsAdd ids_end = indexOf(content, \"][/ESBService/\")\n| fieldsAdd ids = if(ids_end > 0, arrayReverse(splitString(substring(content, from: 0, to: ids_end), \"[\")))\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = replaceString(ids[1], \"]\", \"\"),\n            nexus.channel = ids[0],\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, ids_end, ids, service_raw, is_step\n```\nrquid y canal salen de los dos corchetes que van justo antes de `[/ESBService/...]`\n(`...[rquid][canal][/ESBService/...`). Así funciona con y sin el prefijo `[!dt ...]` del OneAgent; antes el rquid\nse buscaba después de `] [`, que solo existe cuando la línea trae ese prefijo o `[trace]`."
+    },
+    {
+      "type": "dql",
+      "id": "fbfe6ee8-9c0b-48dd-bff2-58616cb31f3d",
+      "title": "Prueba procesador 6: Trazas y pasos del ESB (mngr)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 6: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[/*\")\n| fieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| parse step_time, \"DOUBLE:step_ms\"\n| fieldsAdd ids_end = indexOf(content, \"][/ESBService/\")\n| fieldsAdd ids = if(ids_end > 0, arrayReverse(splitString(substring(content, from: 0, to: ids_end), \"[\")))\n| parse content, \"LD '/ESBService/' LD:service_raw ']'\"\n| fieldsAdd is_step = isNotNull(step_ms) and step != \"AuditLog\"\n| fieldsAdd nexus.kind = if(is_step, \"esb_step\", else: \"mngr_trace\"),\n            nexus.esb.step = if(is_step, step),\n            nexus.duration_ms = if(is_step, step_ms),\n            nexus.rquid = replaceString(ids[1], \"]\", \"\"),\n            nexus.channel = ids[0],\n            nexus.service = splitString(splitString(service_raw, \":\")[0], \"/\")[0]\n| fieldsRemove parts, step, step_time, step_ms, ids_end, ids, service_raw, is_step\n| fields timestamp, nexus.component, nexus.kind, nexus.esb.step, nexus.duration_ms, nexus.rquid, nexus.channel, nexus.service, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "ca4d4e6c-8ed7-45f6-ba37-54abfceb1662",
+      "markdown": "### Procesador 7. Errores del mngr.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[ERROR*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = if(contains(content, \"[ERROR\"), \"mngr_error\", else: nexus.kind)\n```\nLa condición tiene que ser esta, tal cual: con `*-mngr` (sin el asterisco no coincide ningún log group y el procesador\nno corre nunca) y con `matchesValue`, no `matchesPhrase`. Como `matchesValue` no distingue mayúsculas, también deja\npasar `[error` o `[Error...`; por eso el script vuelve a mirar el marcador con `contains`, que sí las distingue: es la\nmisma definición que la alerta `mngr-errors.dql` y el tablero anterior. Validar con la validación de `mngr_error` al final de este notebook."
+    },
+    {
+      "type": "dql",
+      "id": "98e12804-6dee-461f-82fb-cf6d989b1b54",
+      "title": "Prueba procesador 7: Errores del mngr",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 7: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*[ERROR*\")\n| fieldsAdd nexus.kind = if(contains(content, \"[ERROR\"), \"mngr_error\", else: nexus.kind)\n| fields timestamp, nexus.component, nexus.kind, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "57807b27-b645-4d98-a4aa-f2e7f6c481aa",
+      "markdown": "### Procesador 8. Respuesta SOAP al canal.\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*<caracterAceptacion>*\")\n```\nScript:\n```\nparse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code,\n            nexus.soap.operation = operation\n| fieldsRemove acceptance, msg_code, operation\n```\nHoy `caracterAceptacion` vale B (bien) o M (mal), y se está evaluando agregar C (corregido). El procesador toma lo\nque venga entre las etiquetas, así que la C aparece sola como un valor más de `nexus.acceptance`, sin cambiar nada.\nNota: el canal no viaja en la respuesta SOAP (solo en el request). En la ingesta se procesa línea por línea, sin\ncruzar request y response, así que los rechazos (M) por canal siguen saliendo de una query de logs con rango corto.\n\nLos WARN no se descartan: además de los errores de mapeo y los 504 (procesador 4), traen estos casos."
+    },
+    {
+      "type": "dql",
+      "id": "afc02581-b7cc-40c6-ad92-4161a2224a57",
+      "title": "Prueba procesador 8: Respuesta SOAP al canal",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 8: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*<caracterAceptacion>*\")\n| parse content, \"LD '<caracterAceptacion>' LD:acceptance '</caracterAceptacion>'\"\n| parse content, \"LD '<codMsgRespuesta>' LD:msg_code '</codMsgRespuesta>'\"\n| parse content, \"LD '<nombreOperacion>' LD:operation '</nombreOperacion>'\"\n| fieldsAdd nexus.kind = \"soap_resp\", nexus.acceptance = acceptance, nexus.soap.msg_code = msg_code,\n            nexus.soap.operation = operation\n| fieldsRemove acceptance, msg_code, operation\n| fields timestamp, nexus.component, nexus.kind, nexus.acceptance, nexus.soap.msg_code, nexus.soap.operation, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "8ad160cc-1d1e-43d8-a8af-07146f796e02",
+      "markdown": "### Procesador 9. Consumidor que no coincide con el mensaje (WARN del mngr).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*Consumidor no coincide con el cuerpo del mensaje*\")\n```\nScript:\n```\nparse content, \"LD 'cuerpo del mensaje:' SPACE? LD:value\"\n| fieldsAdd nexus.kind = \"consumer_mismatch\", nexus.consumer_mismatch.value = trim(value)\n| fieldsRemove value\n```\nNo pasa en todas las transacciones: varía mucho por cluster, así que apunta a consumidores puntuales. Falta que\ndesarrollo confirme qué es el valor final antes de usarlo como dimensión de una métrica."
+    },
+    {
+      "type": "dql",
+      "id": "aa380779-582a-42a6-a1cf-ce3a57233764",
+      "title": "Prueba procesador 9: Consumidor que no coincide con el mensaje (WARN del mngr)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 9: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-mngr\") and matchesValue(content, \"*Consumidor no coincide con el cuerpo del mensaje*\")\n| parse content, \"LD 'cuerpo del mensaje:' SPACE? LD:value\"\n| fieldsAdd nexus.kind = \"consumer_mismatch\", nexus.consumer_mismatch.value = trim(value)\n| fieldsRemove value\n| fields timestamp, nexus.component, nexus.kind, nexus.consumer_mismatch.value, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "f846c161-f120-4b47-a991-8005902916f3",
+      "markdown": "### Procesador 10. Respuesta de Stratus después del timeout (WARN del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*despues de timeout*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = \"stratus_late_reply\"\n```\nJunto con `timeout_504` separa los timeouts en \"Stratus contestó tarde\" y \"Stratus no contestó\"."
+    },
+    {
+      "type": "dql",
+      "id": "8916ea31-9043-46d2-bcd9-22dfa6ff34d9",
+      "title": "Prueba procesador 10: Respuesta de Stratus después del timeout (WARN del adaptador)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 10: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*despues de timeout*\")\n| fieldsAdd nexus.kind = \"stratus_late_reply\"\n| fields timestamp, nexus.component, nexus.kind, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "7471590f-4b61-4dee-863a-c8cb3275f8c9",
+      "markdown": "### Procesador 11. Datos incompletos del backend (WARN `[STREAM]` del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[STREAM]*\")\n```\nScript:\n```\nparse content, \"LD 'atributo=' LD:attribute ','\"\n| fieldsAdd nexus.kind = if(contains(content, \"item incompleto\"), \"stream_incomplete_list\",\n                         else: if(contains(content, \"caracteres nulos\"), \"stream_null_chars\", else: \"stream_other\")),\n            nexus.stream.attribute = attribute\n| fieldsRemove attribute\n```"
+    },
+    {
+      "type": "dql",
+      "id": "a4c10632-8622-4924-b621-abc7a4119695",
+      "title": "Prueba procesador 11: Datos incompletos del backend (WARN `[STREAM]` del adaptador)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 11: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[STREAM]*\")\n| parse content, \"LD 'atributo=' LD:attribute ','\"\n| fieldsAdd nexus.kind = if(contains(content, \"item incompleto\"), \"stream_incomplete_list\",\n                         else: if(contains(content, \"caracteres nulos\"), \"stream_null_chars\", else: \"stream_other\")),\n            nexus.stream.attribute = attribute\n| fieldsRemove attribute\n| fields timestamp, nexus.component, nexus.kind, nexus.stream.attribute, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "4720b465-0712-4a75-bb8b-a5b04d22b2f4",
+      "markdown": "### Procesador 12. Errores de apagado (ruido de cada reinicio del adaptador).\nCondición:\n```\nmatchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[Error Occurred After Shutdown]*\")\n```\nScript:\n```\nfieldsAdd nexus.kind = \"shutdown_noise\"\n```\nSon ERROR que aparecen en cada deploy o reinicio y no indican una falla; marcados así no inflan los conteos de errores."
+    },
+    {
+      "type": "dql",
+      "id": "7b10a897-96ac-4ae3-8f93-1e7619d17f49",
+      "title": "Prueba procesador 12: Errores de apagado (ruido de cada reinicio del adaptador)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// processor 12: its condition and script over recent logs\nfetch logs\n| filter matchesValue(aws.log_group, \"*-adapter\") and matchesValue(content, \"*[Error Occurred After Shutdown]*\")\n| fieldsAdd nexus.kind = \"shutdown_noise\"\n| fields timestamp, nexus.component, nexus.kind, content\n| limit 100"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "96c9e728-de80-4af1-8d7e-ea3981261078",
+      "markdown": "### Seguimiento\n\n| Estatus | Procesador | Nota\n --- | --- | ---\n OK | Nivel del Log | \n OK | Contexto | \n OK | Headers del adaptador | \n OK | Respuesta del adaptador | \n OK | Excepciones del adaptador | \n OK | Tiempo de backend |\n REVISAR | Trazas y pasos del ESB | 26/10: script nuevo (rquid sin prefijo `[!dt`, canal)\n REVISAR | Errores del mngr | 26/10: condición `*-mngr` con matchesValue, script con contains\n OK | Respuesta soap al canal | \n OK | Consumidor que no coincide con el mensaje |\n OK | Datos incompletos del backend (WARN [STREAM] del adaptador). |\n OK | Erroes de apagado |"
+    },
+    {
+      "type": "markdown",
+      "id": "cc745ab4-1f36-4769-8589-2f9c30c9d6b2",
+      "markdown": "## Descartar ruido y enmascarar (etapa Processing, al final)\n\n### Drop del ruido del OneAgent\n\nDrop (procesador *Drop record*) para las líneas del OneAgent que nadie consulta. Condición:\n```\nmatchesValue(content, \"*] info [native]*\") or matchesValue(content, \"*] info [cstats]*\")\n```\nAntes de activarlo, medir cuánto pesan con la prueba de abajo.\n\nLos WARN no se descartan. Medidos sobre datos reales, ninguno es ruido puro: son errores de mapeo, respuestas\ntardías de Stratus, datos incompletos del backend y el aviso de consumidor que no coincide (procesadores 4, 9, 10\ny 11). Los únicos ERROR que sí son ruido son los de apagado, y se marcan con el procesador 12 en lugar de descartarse."
+    },
+    {
+      "type": "dql",
+      "id": "7df8c5c3-15fc-423d-be07-28d292366665",
+      "title": "Prueba drop: líneas del OneAgent que se descartarían",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter matchesValue(content, \"*] info [native]*\") or matchesValue(content, \"*] info [cstats]*\")\n| summarize lines = count(), chars = sum(stringLength(content)), by: { aws.log_group }\n| sort chars desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "ba024f2b-e292-4afb-8d16-d9829815f8d3",
+      "markdown": "### Masking (procesador DQL)\n\nSe enmascara porque el número de documento del cliente viaja en los headers del adaptador.\nCondición:\n```\nmatchesValue(content, \"*X-CustIdentNum=*\")\n```\nScript:\n```\nfieldsAdd content = replacePattern(content, \"'X-CustIdentNum=' LD ','\", \"X-CustIdentNum=####,\")\n```\nNota: no está probado; validar con la vista previa del procesador. Los valores `1=`/`2=`/`3=` de los errores de mapeo\ntambién pueden traer datos del cliente; enmascararlos igual si el área de seguridad lo pide (el tablero ya muestra\n`1=` con los dígitos como 9)."
+    },
+    {
+      "type": "dql",
+      "id": "d336f87f-6e86-4ef1-bc06-7b36620b34a1",
+      "title": "Prueba masking: documento del cliente enmascarado",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// counts only, so no customer document is shown if the masking fails\nfetch logs\n| filter matchesValue(content, \"*X-CustIdentNum=*\")\n| fieldsAdd content = replacePattern(content, \"'X-CustIdentNum=' LD ','\", \"X-CustIdentNum=####,\")\n| summarize lines = count(), masked = countIf(contains(content, \"X-CustIdentNum=####,\")), by: { aws.log_group }"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "335f5685-f002-465e-a2e0-7c35eb943bd0",
+      "markdown": "## Métricas (etapa Metric extraction)\n\nCada métrica se extrae de las líneas que matchean su condición, con atributos `nexus.*` como dimensiones.\nLas claves de las métricas en el tenant empiezan con `custom.nexus.log.`. Sus dimensiones se llaman como en la\ncolumna Dimensiones, sin el prefijo `nexus.` de los atributos: en las consultas sobre métricas se filtra y agrupa\npor `cluster`, `outcome`, `service`...; en las consultas sobre logs, por `nexus.cluster`, `nexus.outcome`...\n\n| Hecho | Métrica | Tipo | Condición | Dimensiones | Reemplaza en el tablero |\n|---|---|---|---|---|---|\n| [x] | `custom.nexus.log.adapter.responses` | counter | `matchesValue(nexus.kind, \"audit_resp\")` | cluster, service, channel, outcome, http_code | KPIs, respuestas en el tiempo, % error por servicio/canal |\n| [x] | `custom.nexus.log.adapter.mapping_errors` | counter | `matchesValue(nexus.kind, \"mapping_error\")` | cluster, service, channel, mapping.direction, mapping.field | ERRORES DE MAPEO (conteos) |\n| [x] | `custom.nexus.log.adapter.timeouts` | counter | `matchesValue(nexus.kind, \"timeout_504\")` | cluster, service, channel | TIMEOUTS 504 |\n| [x] | `custom.nexus.log.adapter.backend_ms` | value (`nexus.duration_ms`) | `matchesValue(nexus.kind, \"backend_time\")` | cluster, component | LATENCIA ADAPTADOR |\n| [x] | `custom.nexus.log.adapter.backend_calls` | counter | `matchesValue(nexus.kind, \"backend_time\")` | cluster, component, latency_bucket | distribución de latencia (reemplazo del p95) |\n| [x] | `custom.nexus.log.mngr.errors` | counter | `matchesValue(nexus.kind, \"mngr_error\")` | cluster, service, channel | ERROR LOGS, errores por canal |\n| [ ] | `custom.nexus.log.mngr.soap_responses` | counter | `matchesValue(nexus.kind, \"soap_resp\")` | cluster, acceptance, soap.operation, soap.msg_code | respuestas al canal B / M / C |\n| [x] | `custom.nexus.log.mngr.consumer_mismatch` | counter | `matchesValue(nexus.kind, \"consumer_mismatch\")` | cluster | nuevo: WARN \"Consumidor no coincide\" |\n| [x] | `custom.nexus.log.adapter.stratus_late_replies` | counter | `matchesValue(nexus.kind, \"stratus_late_reply\")` | cluster, component | nuevo: respuestas tardías de Stratus |\n| [x] | `custom.nexus.log.adapter.stream_issues` | counter | `matchesValue(nexus.kind, \"stream_*\")` | cluster, component, kind, stream.attribute | nuevo: calidad de datos del backend |\n| [x] | `custom.nexus.log.log_lines` | counter | `isNotNull(nexus.cluster) and (isNull(nexus.kind) or not matchesValue(nexus.kind, \"shutdown_noise\"))` | cluster, component, loglevel | nuevo: volumen por nivel (ERROR / WARN / INFO) |\n| [x] | `custom.nexus.log.esb.step_ms` | value (`nexus.duration_ms`) | `matchesValue(nexus.kind, \"esb_step\")` | cluster, service, esb.step | LATENCIA POR PASO ESB |\n\nLa columna Hecho se marca a mano al crear cada métrica en OpenPipeline: `[x]` hecho, `[ ]` pendiente.\n\nReglas de cardinalidad (lo que más cuesta en métricas):\n- No usar `nexus.rquid` ni valores del cliente como dimensión: serían millones de series.\n- Cluster, servicio, canal y resultado juntos están bien (cientos o miles de series).\n- Cada combinación distinta de dimensiones es una serie que se cobra: antes de sumar una dimensión, preguntar si alguien la va a filtrar.\n\np95: una métrica de valor da promedio, mínimo, máximo, suma y conteo, pero no garantiza percentiles.\nPor eso `backend_calls` lleva `nexus.latency_bucket`: \"qué % de llamadas tarda más de 1 s\" responde lo mismo que un p95\npara alertar.\n\nQué queda en logs (con rango corto): el ejemplo del error de mapeo, los rquids con error, la traza por rquid y\nlos rechazos por canal. Eso es el detalle de cada tablero por cluster, no el general (ver notebook Tablero).\n\nCada métrica va con una prueba que agrupa por sus dimensiones: si una columna sale vacía, esa dimensión\ntiene otro nombre en el tenant; si la prueba no devuelve filas, la métrica no tiene datos en el rango."
+    },
+    {
+      "type": "dql",
+      "id": "17acb81e-a38b-413b-a237-52d2c7ad7384",
+      "title": "Prueba métrica: custom.nexus.log.adapter.responses",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome, http_code }\n| fieldsAdd total = arraySum(v)\n| fields cluster, service, channel, outcome, http_code, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "d8b9bf64-5be2-4e2b-b821-f4c5beeda9c4",
+      "title": "Prueba métrica: custom.nexus.log.adapter.mapping_errors",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.mapping_errors), by: { cluster, service, channel, mapping.direction, mapping.field }\n| fieldsAdd total = arraySum(v)\n| fields cluster, service, channel, mapping.direction, mapping.field, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "d93ac2d9-19fe-431a-9437-703a2c7e993b",
+      "title": "Prueba métrica: custom.nexus.log.adapter.timeouts",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| fieldsAdd total = arraySum(v)\n| fields cluster, service, channel, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "515bba20-0cbc-4456-b904-90771f929397",
+      "title": "Prueba métrica: custom.nexus.log.adapter.backend_ms",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = avg(custom.nexus.log.adapter.backend_ms), by: { cluster, component }\n| fieldsAdd avg_ms = arrayAvg(v)\n| fields cluster, component, avg_ms\n| sort avg_ms desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "c65c8d50-cca3-48cd-8c46-f6ed26214573",
+      "title": "Prueba métrica: custom.nexus.log.adapter.backend_calls",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.backend_calls), by: { cluster, component, latency_bucket }\n| fieldsAdd total = arraySum(v)\n| fields cluster, component, latency_bucket, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "03c5d754-8b57-4dd9-ab1e-9a334a8bef56",
+      "title": "Prueba métrica: custom.nexus.log.mngr.errors",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| fieldsAdd total = arraySum(v)\n| fields cluster, service, channel, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "bf983037-bfe7-466b-af56-38e9bb35a3b3",
+      "title": "Prueba métrica: custom.nexus.log.mngr.soap_responses",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| fieldsAdd total = arraySum(v)\n| fields cluster, acceptance, soap.operation, soap.msg_code, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "1a335703-23a0-47fb-baff-11dfdda1c070",
+      "title": "Prueba métrica: custom.nexus.log.mngr.consumer_mismatch",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.mngr.consumer_mismatch), by: { cluster }\n| fieldsAdd total = arraySum(v)\n| fields cluster, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "966ba2f5-a2f0-4533-8211-b5a3dc0b04dc",
+      "title": "Prueba métrica: custom.nexus.log.adapter.stratus_late_replies",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.stratus_late_replies), by: { cluster, component }\n| fieldsAdd total = arraySum(v)\n| fields cluster, component, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "91c8d287-cf8d-43ae-8577-7f1ea5335176",
+      "title": "Prueba métrica: custom.nexus.log.adapter.stream_issues",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.adapter.stream_issues), by: { cluster, component, kind, stream.attribute }\n| fieldsAdd total = arraySum(v)\n| fields cluster, component, kind, stream.attribute, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "b4cfd5e3-acbb-4874-956c-140a8d1cd6c9",
+      "title": "Prueba métrica: custom.nexus.log.log_lines",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = sum(custom.nexus.log.log_lines), by: { cluster, component, loglevel }\n| fieldsAdd total = arraySum(v)\n| fields cluster, component, loglevel, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "1ac7742d-d9c4-4998-951f-06a88e39a3a7",
+      "title": "Prueba métrica: custom.nexus.log.esb.step_ms",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries v = avg(custom.nexus.log.esb.step_ms), by: { cluster, service, esb.step }\n| fieldsAdd avg_ms = arrayAvg(v)\n| fields cluster, service, esb.step, avg_ms\n| sort avg_ms desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "004df60a-63ce-4dce-9210-62afb3fa38ae",
+      "markdown": "## Buckets (etapa Storage)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [x] | `nexus_errores` | `matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\")` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
+    },
+    {
+      "type": "dql",
+      "id": "d8d3cec3-7702-4709-830e-ad367d0dd7f3",
+      "title": "Prueba buckets: cada línea en su bucket",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-15m",
+            "to": "now()"
+          },
+          "value": "// expected: nexus_errores only with should_be_error = true, logs_integracion only with false\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\")) and isNotNull(nexus.cluster)\n| fieldsAdd should_be_error = coalesce(matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\"), false)\n| summarize lines = count(), by: { dt.system.bucket, should_be_error }"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "ce3a56d4-190f-40a8-b958-31276fa00bf9",
+      "markdown": "## Validación: la métrica tiene que dar lo mismo que los logs\n\nComparar en la misma ventana las dos consultas de abajo. Si difieren más de ~1 %, revisar la condición de la\nmétrica o el procesador 3. La ventana tiene que empezar después de creada la métrica."
+    },
+    {
+      "type": "dql",
+      "id": "ee2d6567-65c6-4fa9-87ad-e8ffa2cac6a2",
+      "title": "Hoy: respuestas del adaptador por resultado, desde logs (para comparar)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter dt.system.bucket == \"logs_integracion\" and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| fieldsAdd outcome = if(isNull(code), \"unknown\", else: if(code >= 200 and code < 300, \"ok_2xx\", else: if(code == 412, \"business_412\", else: \"error\")))\n| summarize responses = count(), by: { outcome }"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "1baa0a39-f8b7-4634-90d6-d72c56c0826e",
+      "title": "Validación: respuestas del adaptador por resultado, desde la métrica",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { outcome }\n| fieldsAdd responses = arraySum(r)\n| fields outcome, responses"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "1c02d03c-ffe9-42ef-852f-8d8977bf9254",
+      "markdown": "## Validación de `mngr_error`\n\nUn error del mngr es una línea de un log group `*ws-mngr` con el marcador `[ERROR` en mayúsculas: la misma\ndefinición que la alerta `mngr-errors.dql` y el tablero anterior. Correr las cinco consultas con el mismo rango, posterior al último cambio de los procesadores 6 y 7 (la ingesta no reprocesa lo ya guardado).\n\n| Consulta | Resultado esperado | Si no da eso |\n|---|---|---|\n| 1. logs vs atributo | `missed` = 0, `extra` = 0, `in_errors_bucket` = `truth` | ver 2 o 3 |\n| 2. errores no marcados | sin filas | `nexus.kind` = `mngr_trace`: el procesador 6 corrió y el 7 no (condición sin `*` o con `matchesPhrase`). `nexus.kind` vacío con `has_cluster` = true: la línea no tiene `[/` y el 7 tampoco corrió. `has_cluster` = false: la línea no pasó por la ruta del pipeline |\n| 3. marcados que no son error | sin filas | `marker_any_case` = true: `[error` en minúsculas, falta el `contains` del script del 7. false: la condición del 7 es otra (`matchesPhrase`) |\n| 4. métrica vs logs | `diff_pct` cerca de 0 | condición de la métrica `custom.nexus.log.mngr.errors` o rango anterior a su creación |\n| 5. atributos de los errores | `no_rquid` y `no_service` en 0 o casi | `no_rquid` alto en `dt_prefix` = false: falta el script nuevo del procesador 6 |"
+    },
+    {
+      "type": "dql",
+      "id": "3c659bca-2f47-485e-812a-e94560c85e5e",
+      "title": "Validación mngr_error 1: logs vs atributo, por cluster",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// truth = the old alert's definition: case-sensitive \"[ERROR\" in a ws mngr line\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| fieldsAdd truth = contains(content, \"[ERROR\"), tagged = coalesce(nexus.kind, \"\") == \"mngr_error\"\n| summarize truth = countIf(truth), tagged = countIf(tagged),\n    missed = countIf(truth and not tagged), extra = countIf(tagged and not truth),\n    in_errors_bucket = countIf(truth and dt.system.bucket == \"nexus_errores\"), by: { cluster }\n| sort truth desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "d2b131c6-e434-4019-bc5e-845a4e21dd7f",
+      "title": "Validación mngr_error 2: errores que no quedaron marcados",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\") and coalesce(nexus.kind, \"\") != \"mngr_error\"\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt.system.bucket, nexus.kind, loglevel, has_cluster = isNotNull(nexus.cluster) }\n| sort lines desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "6d5fbb77-a7bb-4d68-b9bb-2e142d441821",
+      "title": "Validación mngr_error 3: marcados que no son error",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter coalesce(nexus.kind, \"\") == \"mngr_error\" and not contains(content, \"[ERROR\")\n| fieldsAdd marker_any_case = contains(content, \"[ERROR\", caseSensitive: false)\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { loglevel, marker_any_case }\n| sort lines desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "256cd7a0-d6d1-4cc9-92a9-7f7143996fb9",
+      "title": "Validación mngr_error 4: métrica vs logs, por cluster",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| summarize logs = count(), by: { nexus.cluster }\n| lookup [\n    timeseries m = sum(custom.nexus.log.mngr.errors), by: { cluster }\n    | fieldsAdd metric = arraySum(m)\n  ], sourceField: nexus.cluster, lookupField: cluster, fields: { metric }\n| fieldsAdd diff_pct = round(100.0 * (coalesce(metric, 0) - logs) / logs, decimals: 1)\n| sort diff_pct asc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "551f5f6e-7a8b-42f9-a126-320d771fdb58",
+      "title": "Validación mngr_error 5: rquid, servicio y canal de los errores",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| fieldsAdd dt_prefix = contains(content, \"[!dt \")\n| summarize lines = count(), no_rquid = countIf(isNull(nexus.rquid)), no_service = countIf(isNull(nexus.service)),\n    no_channel = countIf(isNull(nexus.channel)), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt_prefix }"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    }
+  ]
+}

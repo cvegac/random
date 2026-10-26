@@ -1,40 +1,42 @@
 PLAN DE TRABAJO - Nexus: pipeline de ingesta (OpenPipeline) para 30M tx/día
-Notebook: "Nexus · Ingesta: métricas y logs" (nexus-ingest.json)
+Notebooks: nexus-1-context, nexus-2-pipeline, nexus-3-dashboard y nexus-4-alerts (dynatrace/notebooks)
 Inicio: 22/10/2026        Entrega: lunes 26/10/2026        Fecha límite: jueves 29/10/2026
-Las secciones mencionadas son las del notebook. Cada métrica o alerta se copia del notebook y se pega en
+Cada métrica o alerta se copia del notebook y se pega en
 OpenPipeline o en Anomaly Detection: es trabajo de minutos, no de días.
 
 Estado: [ ] pendiente   [x] hecho
 
 HECHO                                                       22/10
-   [x] Bucket nexus_errores (sección 6).
-   [x] Ruta del pipeline nexus y procesadores 1 a 8 (sección 3).
-   [x] Métrica custom.nexus.log.adapter.timeouts (sección 5).
+   [x] Bucket nexus_errores (notebook Pipeline).
+   [x] Ruta del pipeline nexus y procesadores 1 a 8 (notebook Pipeline).
+   [x] Métrica custom.nexus.log.adapter.timeouts (notebook Pipeline).
 
 VIERNES 23/10 - mañana: configurar
    [ ] Revisar las condiciones de los procesadores 5 a 8: tienen que decir "*-adapter" / "*-mngr" con asterisco.
    [ ] Comprobar que matchesPhrase da lo mismo que contains en "::HEAD::[", "[/" y "[ERROR"; si no, usar
        la condición del notebook (matchesValue con asteriscos).
    [x] Procesadores 0 (nivel del log) y 9 a 12 (WARN y ruido de apagado), después del 8.
-   [x] Sumar "stratus_late_reply" y los stream_* a la regla de bucket de errores (sección 6).
-   [ ] Drop del ruido del OneAgent y masking de X-CustIdentNum, este último si seguridad ya dio el visto bueno (sección 4).
-   [x] Las 11 métricas restantes (sección 5); claves custom.nexus.log.*.
+   [x] Sumar "stratus_late_reply" y los stream_* a la regla de bucket de errores (notebook Pipeline).
+   [ ] Drop del ruido del OneAgent y masking de X-CustIdentNum, este último si seguridad ya dio el visto bueno (notebook Pipeline).
+   [x] Las 11 métricas restantes (notebook Pipeline); claves custom.nexus.log.*.
    [ ] Enviar las preguntas abiertas a desarrollo, negocio y seguridad (no bloquean el plan).
 
 VIERNES 23/10 - tarde: validar y consumir
-   [ ] Validar cada métrica contra los logs en la ventana desde que se creó (sección 10); marcar Hecho en la sección 5.
+   [ ] Validar cada métrica contra los logs en la ventana desde que se creó (notebook Pipeline); marcar Hecho en Métricas.
    [ ] Validar timeouts igual, con la ventana del 22/10 en adelante.
    [ ] Verificar la regla de Storage del bucket nexus_errores y que la ruta cubre todos los clusters.
    [x] Tableros nuevos: dashboards/nexus-overview.json (métricas) y dashboards/nexus-detail.json
        (logs con atributos nexus.* y bucket nexus_errores).
    [ ] Importar los dos tableros y revisar cada tile.
-   [ ] Crear las 11 alertas (sección 9) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
+   [ ] Crear las 11 alertas (notebook Alertas) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
 LUNES 26/10 - ajustar y entregar
-   [ ] mngr_error: correr la validación de la sección 10. Corregir el procesador 6 (rquid y canal) y el 7
+   [x] Notebook separado en 4 (contexto, pipeline, tablero, alertas), con pruebas por procesador, métrica
+       y alerta. Importar los 4 en el tenant y borrar el notebook "Nexus · Ingesta: métricas y logs".
+   [ ] mngr_error: correr la validación de mngr_error (notebook Pipeline). Corregir el procesador 6 (rquid y canal) y el 7
        (condición "*-mngr" con matchesValue, script con contains); sumar nexus.channel a la métrica
        custom.nexus.log.mngr.errors. Repetir la validación con datos posteriores al cambio.
-   [ ] Crear la métrica custom.nexus.log.mngr.soap_responses (sección 5): sin ella quedan vacías las tiles
+   [ ] Crear la métrica custom.nexus.log.mngr.soap_responses (notebook Pipeline): sin ella quedan vacías las tiles
        B / M / C del tablero y la alerta de % respuestas M.
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.

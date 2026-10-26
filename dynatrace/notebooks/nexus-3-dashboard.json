@@ -1,0 +1,667 @@
+{
+  "version": "7",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "type": "markdown",
+      "id": "3ab2b912-3d9b-4484-b2a8-8955ec8abd77",
+      "markdown": "# Nexus · 3. Tablero\n\nLos notebooks de Nexus:\n1. Contexto y línea base: cuánto pesa hoy y qué atributos agrega la ingesta.\n2. Pipeline: ruta, procesadores, métricas y buckets, cada uno con su prueba.\n3. Tablero: las consultas del tablero general sobre métricas y la búsqueda de logs.\n4. Alertas: cada alerta con su query, su prueba y la alerta actual para comparar.\n\nLos tableros para importar son `dynatrace/dashboards/nexus-overview.json` (métricas) y `nexus-detail.json`\n(logs). Acá están las consultas sueltas para probarlas. En las consultas sobre métricas las dimensiones van sin\nprefijo (`cluster`, `outcome`...); en las de logs, con el prefijo (`nexus.cluster`, `nexus.outcome`...)."
+    },
+    {
+      "type": "markdown",
+      "id": "0d5e25d5-3709-4a28-8ef7-e25a213c5045",
+      "markdown": "## Tablero general sobre métricas"
+    },
+    {
+      "type": "dql",
+      "id": "09b61d89-18b8-4d16-86a0-edd470743b8e",
+      "title": "Con ingesta: respuestas del adaptador por resultado",
+      "filterSegments": [],
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries responses = sum(custom.nexus.log.adapter.responses), by: { outcome }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "30d56baf-a9e7-48da-9e98-9be18a9b1695",
+      "title": "Con ingesta: % error por cluster",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, outcome }\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "ce22e45a-a48c-499b-a654-d855a923e89b",
+      "title": "Con ingesta: top servicios con error (con canal)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    by: { cluster, service, channel }\n| filter errors > 0\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort errors desc\n| limit 20"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "bde5adf9-a4e5-4311-a11f-ad429e11ecde",
+      "title": "Con ingesta: errores de mapeo por servicio y campo",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries m = sum(custom.nexus.log.adapter.mapping_errors), by: { cluster, service, mapping.direction, mapping.field }\n| fieldsAdd total = arraySum(m)\n| fields cluster, service, mapping.direction, mapping.field, total\n| sort total desc\n| limit 20"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "92c3d8bd-e959-4d77-a57b-50decc7f4154",
+      "title": "Con ingesta: timeouts 504 por minuto",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries timeouts = sum(custom.nexus.log.adapter.timeouts), by: { cluster }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "barChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "4a94a460-70d9-4c2b-9586-90008e62c795",
+      "title": "Con ingesta: latencia de backend por adaptador",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries avg_ms = avg(custom.nexus.log.adapter.backend_ms), max_ms = max(custom.nexus.log.adapter.backend_ms), by: { component }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "3bf535be-c3fb-450c-be2d-c1ab0d73402e",
+      "title": "Con ingesta: % llamadas al backend de más de 1 s",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { component, latency_bucket }\n| fieldsAdd n = arraySum(c)\n| summarize total = sum(n), slow = sum(if(in(latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)), by: { component }\n| fieldsAdd pct_slow = round(100.0 * slow / total, decimals: 2)\n| sort pct_slow desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "818570bf-3b96-4463-a9ae-aaa35ae4b105",
+      "title": "Con ingesta: respuestas al canal B, M y C por cluster",
+      "filterSegments": [],
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// C (corregido) is shown on its own until the business defines whether it counts as success or failure\ntimeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance }\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), b = sum(if(acceptance == \"B\", n, else: 0)),\n    m = sum(if(acceptance == \"M\", n, else: 0)), c = sum(if(acceptance == \"C\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),\n            pct_c = round(100.0 * c / total, decimals: 2)\n| sort pct_m desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "c53c149b-f961-4831-930a-8563d7a777b7",
+      "title": "Con ingesta: operaciones con más respuestas M",
+      "filterSegments": [],
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, soap.operation, acceptance }\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0)), by: { cluster, soap.operation }\n| fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)\n| sort m desc\n| limit 20"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "284eadb7-867e-44d0-a5ed-6b221665efe2",
+      "title": "Con ingesta: timeouts 504 y respuestas tardías de Stratus",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// late replies = Stratus answered after the adapter gave up; a 504 without a late reply = Stratus never answered\ntimeseries timeouts = sum(custom.nexus.log.adapter.timeouts), late_replies = sum(custom.nexus.log.adapter.stratus_late_replies),\n    by: { cluster }, interval: 5m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "1a65b7e3-9989-4379-921e-30fea55c59be",
+      "title": "Con ingesta: WARN y ERROR por componente",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries l = sum(custom.nexus.log.log_lines), by: { component, loglevel }, interval: 1h\n| filter in(loglevel, array(\"ERROR\", \"WARN\"))\n| fieldsAdd total = arraySum(l)\n| fields component, loglevel, total\n| sort total desc\n| limit 30"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "b35ae65a-b84a-488b-bb62-67077abdd8c0",
+      "title": "Con ingesta: calidad de datos del backend ([STREAM])",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { component, kind, stream.attribute }, interval: 1h\n| fieldsAdd total = arraySum(i)\n| fields component, kind, stream.attribute, total\n| sort total desc\n| limit 20"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "4aab96fd-04c2-4652-86b7-d0ed2cdb40b1",
+      "title": "Con ingesta: consumidor que no coincide, por cada 100 transacciones",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }, interval: 1h\n| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)\n| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)\n| fields cluster, mismatches, transactions, per_100_tx\n| sort per_100_tx desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "fb64326e-8537-40a6-a0f9-c09ad0c36b6a",
+      "title": "Con ingesta: pasos del ESB más lentos",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), by: { service, esb.step }, interval: 1h\n| fieldsAdd avg_ms = arrayAvg(avg_ms)\n| sort avg_ms desc\n| limit 20"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "02a658f8-4179-42d5-b216-41002d90f21d",
+      "markdown": "## Logs: un solo lugar para todos los clusters"
+    },
+    {
+      "type": "dql",
+      "id": "79e78563-be91-4c57-bf9c-c3ee9d13d34f",
+      "title": "Hoy: rquid en todos los clusters (reemplazar PEGAR-RQUID)",
+      "filterSegments": [],
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// today: scans every ECS line in the timeframe; keep the timeframe short (around the transaction time)\nfetch logs\n| filter dt.system.bucket == \"logs_integracion\" and startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| filter contains(content, \"PEGAR-RQUID\")\n| fieldsAdd group = replaceString(aws.log_group, \"/aws/ecs/srv/\", \"\")\n| fields timestamp, group, content\n| sort timestamp asc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "98ac3b2b-e67c-47ba-a072-3c8c3b37bee3",
+      "title": "Con ingesta: rquid en todos los clusters (reemplazar PEGAR-RQUID)",
+      "filterSegments": [],
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter nexus.rquid == \"PEGAR-RQUID\"\n| fields timestamp, nexus.cluster, nexus.layer, nexus.kind, nexus.service, nexus.channel, nexus.duration_ms, content\n| sort timestamp asc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "7f7f7380-22cc-4a12-9dce-e2ee09a75d12",
+      "title": "Con ingesta: errores de todos los clusters (bucket de errores)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "5c3026b2-c0f7-4b39-8d0c-8bafc7ece49b",
+      "title": "Con ingesta: errores de mapeo con ejemplo",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// the example is built at query time from the raw line, over the small errors bucket only\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "237bf505-e4d0-4f32-894d-6547b870dfa8",
+      "title": "Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// one row per rquid: what the channel got, how long the ESB and the backend took\n// error lines go to nexus_errores, so a transaction is split across both buckets\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\")) and nexus.service == \"PEGAR-SERVICIO\" and isNotNull(nexus.rquid)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.rquid }\n| sort esb_ms desc\n| limit 200"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "20147a79-b25a-4018-888b-e95b387c3b45",
+      "markdown": "Sin ir tablero por tablero:\n\n- Esta sección ya cubre todos los clusters: los filtros son atributos (`nexus.cluster == \"...\"`), no tableros distintos.\n- App Logs: con los atributos `nexus.*` se filtra con clics (facetas por cluster, servicio, canal, tipo) sin escribir DQL.\n- Tableros por cluster: siguen sirviendo para el detalle de cada equipo; con los atributos, sus queries se\n  simplifican (`filter nexus.cluster == \"accountsws\"` en vez de `parse aws.log_group ...`) y conviene que usen\n  rango corto por defecto."
+    },
+    {
+      "type": "markdown",
+      "id": "0a0facf9-69c3-4d9b-ba43-1861ddb3ed41",
+      "markdown": "## Pendiente: Adicionar data de infraestructura\n\nEjemplo -> # de tareas minimas"
+    }
+  ]
+}

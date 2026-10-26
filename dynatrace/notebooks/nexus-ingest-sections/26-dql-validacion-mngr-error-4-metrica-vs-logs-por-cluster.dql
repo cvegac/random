@@ -1,9 +1,0 @@
-fetch logs
-| filter dt.system.bucket == "nexus_errores" and nexus.kind == "mngr_error"
-| summarize logs = count(), by: { nexus.cluster }
-| lookup [
-    timeseries m = sum(custom.nexus.log.mngr.errors), by: { cluster }
-    | fieldsAdd metric = arraySum(m)
-  ], sourceField: nexus.cluster, lookupField: cluster, fields: { metric }
-| fieldsAdd diff_pct = round(100.0 * (coalesce(metric, 0) - logs) / logs, decimals: 1)
-| sort diff_pct asc

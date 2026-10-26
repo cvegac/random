@@ -1,5 +1,0 @@
-timeseries m = sum(custom.nexus.log.adapter.mapping_errors), by: { cluster, service, mapping.direction, mapping.field }
-| fieldsAdd total = arraySum(m)
-| fields cluster, service, mapping.direction, mapping.field, total
-| sort total desc
-| limit 20

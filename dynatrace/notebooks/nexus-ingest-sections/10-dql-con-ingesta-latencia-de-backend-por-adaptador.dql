@@ -1,1 +1,0 @@
-timeseries avg_ms = avg(custom.nexus.log.adapter.backend_ms), max_ms = max(custom.nexus.log.adapter.backend_ms), by: { component }, interval: 1m

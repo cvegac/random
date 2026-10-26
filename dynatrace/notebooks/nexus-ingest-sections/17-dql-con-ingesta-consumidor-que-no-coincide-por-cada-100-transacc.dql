@@ -1,5 +1,0 @@
-timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }, interval: 1h
-| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)
-| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)
-| fields cluster, mismatches, transactions, per_100_tx
-| sort per_100_tx desc

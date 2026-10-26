@@ -1,8 +1,0 @@
-// C (corregido) is shown on its own until the business defines whether it counts as success or failure
-timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance }
-| fieldsAdd n = arraySum(s)
-| summarize total = sum(n), b = sum(if(acceptance == "B", n, else: 0)),
-    m = sum(if(acceptance == "M", n, else: 0)), c = sum(if(acceptance == "C", n, else: 0)), by: { cluster }
-| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),
-            pct_c = round(100.0 * c / total, decimals: 2)
-| sort pct_m desc

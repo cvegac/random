@@ -1,0 +1,862 @@
+{
+  "version": "7",
+  "defaultTimeframe": {
+    "from": "now()-2h",
+    "to": "now()"
+  },
+  "defaultSegments": [],
+  "sections": [
+    {
+      "type": "markdown",
+      "id": "097f6c34-d6ba-4327-9e32-437aecc4da83",
+      "markdown": "# Nexus · 4. Alertas\n\nLos notebooks de Nexus:\n1. Contexto y línea base: cuánto pesa hoy y qué atributos agrega la ingesta.\n2. Pipeline: ruta, procesadores, métricas y buckets, cada uno con su prueba.\n3. Tablero: las consultas del tablero general sobre métricas y la búsqueda de logs.\n4. Alertas: cada alerta con su query, su prueba y la alerta actual para comparar.\n\n## Alertas sobre las métricas de ingesta\n\nDónde: app Anomaly Detection > Custom alerts > New. Cada alerta es una query `timeseries` sobre las métricas\n`custom.nexus.log.*`, un analizador y una plantilla de evento.\n\nPor qué cambiarlas: las alertas de hoy (`dynatrace/alerts/*.dql`) corren `fetch logs` cada minuto; con 30M tx/día\nescanean el bucket completo todo el día. Sobre métricas, cada evaluación cuesta lo mismo con cualquier volumen.\nComo las queries devuelven una serie por `cluster`, Dynatrace evalúa y alerta cada cluster por separado.\n\nTransición: dejar las alertas actuales activas hasta que la métrica de cada una esté validada (notebook Pipeline, validación); después crear la nueva y apagar la vieja.\n\n| Hecho | Alerta | Métrica | Analizador | Umbral inicial | Reemplaza |\n|---|---|---|---|---|---|\n| [ ] | % error real del adaptador | `custom.nexus.log.adapter.responses` | estático, ABOVE | 5 % | `adapters-real-error-pct.dql` |\n| [ ] | Timeouts 504 | `custom.nexus.log.adapter.timeouts` | estático, ABOVE | 2 por minuto | `adapters-timeouts.dql` |\n| [ ] | Errores de mapeo | `custom.nexus.log.adapter.mapping_errors` | estático, ABOVE | 2 por minuto | `adapters-mapping-errors.dql` |\n| [ ] | 5xx del backend | `custom.nexus.log.adapter.responses` | estático, ABOVE | 1 por minuto | `adapters-backend-5xx.dql` |\n| [ ] | % respuestas M al canal | `custom.nexus.log.mngr.soap_responses` | estático, ABOVE (después, línea base estacional) | 40 % (a calibrar) | `channel-rejection-pct.dql` |\n| [ ] | Errores del mngr | `custom.nexus.log.mngr.errors` | auto-adaptativo | | `mngr-errors.dql` |\n| [ ] | % llamadas al backend de más de 1 s | `custom.nexus.log.adapter.backend_calls` | estático, ABOVE | 5 % | `mngr-latency-p90.dql` (ver nota) |\n| [ ] | Respuestas tardías de Stratus | `custom.nexus.log.adapter.stratus_late_replies` | auto-adaptativo | | nueva |\n| [ ] | Consumidor que no coincide (por 100 tx) | `custom.nexus.log.mngr.consumer_mismatch` | auto-adaptativo | | nueva |\n| [ ] | Datos incompletos del backend | `custom.nexus.log.adapter.stream_issues` | auto-adaptativo | | nueva |\n| [ ] | Caída de tráfico | `custom.nexus.log.adapter.responses` | línea base estacional, BELOW | | nueva |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente.\n\nConfiguración común, la misma que las alertas actuales: violating samples 3, sliding window 5, dealerting\nsamples 5, alert on missing data apagado (salvo la caída de tráfico, donde no tener datos es justamente la falla).\nLos umbrales de hoy se calibraron para todos los clusters juntos; por cluster pueden necesitar ajuste, sobre todo\nen los clusters con poco tráfico. En la plantilla del evento, poner el cluster en el título, por ejemplo\n`Nexus: timeouts 504 en {dims:cluster}` (verificar el formato del placeholder en el tenant).\nPara que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.\n\nCada alerta va con su query graficada por cluster. Las de umbral fijo traen además \"¿habría alertado?\": por\ncluster, los minutos sobre el umbral y los minutos en que se cumplía 3 de 5 (aproximación: no simula el\ndealerting). Las que reemplazan una alerta actual traen la query actual sobre logs, para comparar con el mismo rango.\n`interval: 1m` y `default: 0` hacen que los minutos sin datos cuenten como 0 y no como hueco."
+    },
+    {
+      "type": "markdown",
+      "id": "0fcb763e-4c1b-4dc6-934d-9c6d046daeb5",
+      "markdown": "### 1. % error real del adaptador\n\n2xx y 412 no son error; minutos con 10 respuestas o menos cuentan como 0. Estático, ABOVE, umbral 5 %."
+    },
+    {
+      "type": "dql",
+      "id": "1153acef-6876-4ba6-b19e-a9600c79772e",
+      "title": "Alerta 1: % error real del adaptador",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: outcome == \"error\", interval: 1m\n  ], on: { cluster }, fields: { errors }\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, error_pct"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "7843990b-ada1-46c3-a9f5-74488c2e7d1d",
+      "title": "Alerta 1: ¿habría alertado? (umbral 5)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: outcome == \"error\", interval: 1m\n  ], on: { cluster }, fields: { errors }\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, error_pct\n| fieldsAdd above = if(error_pct[] > 5, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(error_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "7cf3a6b8-9f22-49c3-9598-c0e07ed16c15",
+      "title": "Alerta 1: alerta actual sobre logs (adapters-real-error-pct.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): adapters real error %.\n// Analyzer: static threshold | condition: ABOVE | threshold: 5 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// % of adapter responses that are neither 2xx nor 412 (412 = business answer). Minutes with 10 or fewer\n// responses read as 0 so one failure on a quiet minute can't fire it.\n// Lines whose HTTPCODE can't be parsed are left out instead of counted as errors.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| filter isNotNull(code)\n| makeTimeseries total = count(default: 0),\n    errors = countIf(not (code >= 200 and code < 300) and code != 412, default: 0),\n    interval: 1m\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, error_pct"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "d0f2fbe2-e191-42e7-b382-a546b593816a",
+      "markdown": "### 2. Timeouts 504\n\nEstático, ABOVE, umbral 2 por minuto."
+    },
+    {
+      "type": "dql",
+      "id": "34b14bae-b6c8-4a7b-a8e3-c708a1c6af4d",
+      "title": "Alerta 2: Timeouts 504",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "26f6ac03-bb34-4014-8b96-75ff2f101b04",
+      "title": "Alerta 2: ¿habría alertado? (umbral 2)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m\n| fieldsAdd above = if(timeouts[] > 2, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(timeouts), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "72673479-c94f-466d-b7af-7eb97fcebf03",
+      "title": "Alerta 2: alerta actual sobre logs (adapters-timeouts.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): adapters backend timeouts (504).\n// Analyzer: static threshold | condition: ABOVE | threshold: 2 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// Backend timeouts (HttpCode 504) reported by the adapters' GenericExceptionMapper. Fires when\n// 3 of 5 minutes have 3 or more.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code == 504\n| makeTimeseries timeouts = count(default: 0), interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "d4156d2a-b010-4d95-8fe2-fb8d39e79791",
+      "markdown": "### 3. Errores de mapeo\n\nEstático, ABOVE, umbral 2 por minuto."
+    },
+    {
+      "type": "dql",
+      "id": "044810b0-aecf-4e8b-b4fd-d464d872569c",
+      "title": "Alerta 3: Errores de mapeo",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "9a3ef399-415b-4c0b-b5af-f58d9839986b",
+      "title": "Alerta 3: ¿habría alertado? (umbral 2)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m\n| fieldsAdd above = if(mapping_errors[] > 2, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(mapping_errors), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "26009a56-cee6-48f6-8dc2-c61403a99e23",
+      "title": "Alerta 3: alerta actual sobre logs (adapters-mapping-errors.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): adapters mapping errors.\n// Analyzer: static threshold | condition: ABOVE | threshold: 2 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// GenericExceptionMapper lines in the adapters, 504 timeouts excluded (those go to adapters-timeouts).\n// Fires when 3 of 5 minutes have 3 or more.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"GenericExceptionMapper\") and contains(content, \"HttpCode::\")\n| parse content, \"LD 'HttpCode::' SPACE? INT:http_code\"\n| filter http_code != 504\n| makeTimeseries mapping_errors = count(default: 0), interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "690b49db-9129-4355-842e-91f94a1fe08b",
+      "markdown": "### 4. 5xx del backend\n\nEstático, ABOVE, umbral 1 por minuto."
+    },
+    {
+      "type": "dql",
+      "id": "173ae323-7e7c-47c5-a8ca-2b1809f3d0ca",
+      "title": "Alerta 4: 5xx del backend",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n    filter: startsWith(http_code, \"5\"), interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "913e5d91-aa1e-4a80-9928-af98792b944d",
+      "title": "Alerta 4: ¿habría alertado? (umbral 1)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n    filter: startsWith(http_code, \"5\"), interval: 1m\n| fieldsAdd above = if(backend_5xx[] > 1, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(backend_5xx), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "9206063b-587d-40aa-be55-8f37c33b141b",
+      "title": "Alerta 4: alerta actual sobre logs (adapters-backend-5xx.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): adapters backend 5xx.\n// Analyzer: static threshold | condition: ABOVE | threshold: 1 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// Adapter responses with HTTP 5xx from the backend, per minute. Fires when 3 of\n// 5 minutes have 2 or more.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-adapter\")\n| filter contains(content, \"::AUDIT::RESP::\")\n| parse content, \"LD '::HTTPCODE::' SPACE? INT:code\"\n| filter code >= 500 and code < 600\n| makeTimeseries backend_5xx = count(default: 0), interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "f4a5f226-9774-43bf-9cd0-78045ddffe1e",
+      "markdown": "### 5. % respuestas M al canal\n\nLa C no cuenta como M hasta que negocio defina qué es. Estático, ABOVE, umbral 40 % (a calibrar; después, línea base estacional). Necesita la métrica `soap_responses`, todavía sin crear."
+    },
+    {
+      "type": "dql",
+      "id": "76517fce-3d96-436b-918b-1e7a95d2819f",
+      "title": "Alerta 5: % respuestas M al canal",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n        filter: acceptance == \"M\", interval: 1m\n  ], on: { cluster }, fields: { rejected }\n| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, rejection_pct"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "1895b8ee-83d9-443c-ab09-571c0cf6d9e1",
+      "title": "Alerta 5: ¿habría alertado? (umbral 40)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n        filter: acceptance == \"M\", interval: 1m\n  ], on: { cluster }, fields: { rejected }\n| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, rejection_pct\n| fieldsAdd above = if(rejection_pct[] > 40, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(rejection_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "daa167b4-b67b-400b-95d8-db0a01cba34e",
+      "title": "Alerta 5: alerta actual sobre logs (channel-rejection-pct.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): channel rejection % (caracterAceptacion M).\n// Analyzer: static threshold | condition: ABOVE | threshold: 40 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// % of SOAP responses to the channel with caracterAceptacion M. M mixes business answers and technical errors,\n// so 40 is a placeholder: calibrate it with the \"% rechazo al canal (M)\" widget, or use the seasonal baseline\n// analyzer once there is history. Minutes with 10 or fewer responses read as 0.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"<caracterAceptacion>\")\n| makeTimeseries total = count(default: 0),\n    rejected = countIf(contains(content, \"<caracterAceptacion>M</caracterAceptacion>\"), default: 0),\n    interval: 1m\n| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, rejection_pct"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "84f00a28-367c-460b-97cc-158a1e8229d1",
+      "markdown": "### 6. Errores del mngr\n\nAuto-adaptativo."
+    },
+    {
+      "type": "dql",
+      "id": "4ac3abbc-95c5-4416-bf0b-171df270aa0c",
+      "title": "Alerta 6: Errores del mngr",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries mngr_errors = sum(custom.nexus.log.mngr.errors, default: 0), by: { cluster }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "02db048f-69bf-4a02-98ab-5bc9ca9c3129",
+      "title": "Alerta 6: alerta actual sobre logs (mngr-errors.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): mngr errors.\n// Analyzer: static threshold | condition: ABOVE | threshold: 4 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// \"[ERROR\" lines in the ws mngr. Fires when 3 of 5 minutes have 5 or more.\n// Its normal level is not 0: if it fires too often, switch to the auto-adaptive analyzer.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\")\n| makeTimeseries mngr_errors = count(default: 0), interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "d64176d2-1e13-41b7-8e72-39f8f6696e4d",
+      "markdown": "### 7. % llamadas al backend de más de 1 s\n\nEstático, ABOVE, umbral 5 %.\n\nNota: la alerta actual de latencia suma los pasos del ESB por transacción (p90 de punta a punta). Eso necesita\nagrupar por rquid, y una métrica no puede hacerlo. Esta alerta mide la parte del backend; la de punta a punta\npuede quedar sobre logs, pero evaluada cada 5 minutos y no cada minuto."
+    },
+    {
+      "type": "dql",
+      "id": "96c720fd-fa74-412a-a3df-e1116b6d2883",
+      "title": "Alerta 7: % llamadas al backend de más de 1 s",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n        filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m\n  ], on: { cluster }, fields: { slow }\n| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, slow_pct"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "6c3cda3f-c779-4516-97a6-bd2a7436efa0",
+      "title": "Alerta 7: ¿habría alertado? (umbral 5)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n        filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m\n  ], on: { cluster }, fields: { slow }\n| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, slow_pct\n| fieldsAdd above = if(slow_pct[] > 5, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fieldsAdd max_value = arrayMax(slow_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| fields cluster, max_value, minutes_above, minutes_firing\n| sort minutes_firing desc, minutes_above desc"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": true,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "table",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "dql",
+      "id": "5e6eb1de-057c-4232-9f2f-553125e1f783",
+      "title": "Alerta 7: alerta actual sobre logs (mngr-latency-p90.dql)",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "// Custom alert (Anomaly Detection app): end-to-end transaction latency, measured in the mngr\n// (the API Gateway logs are not ingested in Dynatrace).\n// Analyzer: static threshold | condition: ABOVE | threshold: 2500 | violating samples: 3 | sliding window: 5\n//           dealerting samples: 5 | alert on missing data: off\n// p90 of the per-transaction time (sum of the mngr ESB step times, same as total_ms in\n// dynatrace/queries/trx_latency.dql), by the minute the transaction started. Minutes with 10 or fewer\n// transactions read as 0. Transactions cut at the edge of the query window add up fewer steps and read faster.\n// When it fires, dynatrace/queries/trx_latency.dql or slow_transactions.sh show which transactions were slow.\nfetch logs\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[/\")\n// mngr step line: ... [trace] [rquid][canal][/ESBService/<Service>:<version>][backend][nivel][fase][paso][tiempo unidad]\n| parse content, \"LD '] [' LD:rquid ']['\"\n| fieldsAdd parts = arrayReverse(splitString(trim(content), \"[\"))\n| fieldsAdd step = replaceString(parts[1], \"]\", \"\"), step_time = replaceString(parts[0], \"]\", \"\")\n| filter step != \"AuditLog\"\n| parse step_time, \"DOUBLE:step_ms\"\n| filter isNotNull(rquid) and isNotNull(step_ms)\n| summarize total_ms = sum(step_ms), started = min(timestamp), by: { rquid }\n| makeTimeseries trx = count(default: 0), p90_ms = percentile(total_ms, 90), time: started, interval: 1m\n| fieldsAdd p90_ms = if(trx[] > 10, p90_ms[], else: 0.0)\n| fieldsKeep timeframe, interval, p90_ms"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "3df1cdb9-1d67-4767-be9f-8f9bd4c1a4d7",
+      "markdown": "### 8. Respuestas tardías de Stratus\n\nAuto-adaptativo. Nueva."
+    },
+    {
+      "type": "dql",
+      "id": "64efb61e-3f4b-45b1-88ec-c41784c55c0a",
+      "title": "Alerta 8: Respuestas tardías de Stratus",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries late_replies = sum(custom.nexus.log.adapter.stratus_late_replies, default: 0), by: { cluster }, interval: 1m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "0455a477-c22f-474d-b963-a938dc225ed5",
+      "markdown": "### 9. Consumidor que no coincide, por cada 100 transacciones\n\nEl nivel normal cambia mucho entre clusters, por eso auto-adaptativo y no un umbral fijo. Nueva."
+    },
+    {
+      "type": "dql",
+      "id": "d7864343-d555-4de1-8de5-c720db540b57",
+      "title": "Alerta 9: Consumidor que no coincide, por cada 100 transacciones",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries tx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 5m\n| join [\n    timeseries mismatches = sum(custom.nexus.log.mngr.consumer_mismatch, default: 0), by: { cluster }, interval: 5m\n  ], on: { cluster }, fields: { mismatches }\n| fieldsAdd per_100_tx = if(tx[] > 50, 100.0 * mismatches[] / tx[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, per_100_tx"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "da3f3469-7e88-444d-99e3-a465305ca65f",
+      "markdown": "### 10. Datos incompletos del backend\n\nAuto-adaptativo. Nueva."
+    },
+    {
+      "type": "dql",
+      "id": "775c1e1c-0eb7-458d-8f8a-90e802be5a0e",
+      "title": "Alerta 10: Datos incompletos del backend",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries stream_issues = sum(custom.nexus.log.adapter.stream_issues, default: 0), by: { cluster }, interval: 5m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    },
+    {
+      "type": "markdown",
+      "id": "6514a1cc-0cb7-4faa-9082-df1c9c9f008d",
+      "markdown": "### 11. Caída de tráfico\n\nLínea base estacional, BELOW, con alert on missing data encendido. Nueva."
+    },
+    {
+      "type": "dql",
+      "id": "d63cbf72-2141-4c1b-83b1-bf80de1f6c97",
+      "title": "Alerta 11: Caída de tráfico",
+      "state": {
+        "input": {
+          "timeframe": {
+            "from": "now()-2h",
+            "to": "now()"
+          },
+          "value": "timeseries responses = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 5m"
+        },
+        "visualizationSettings": {
+          "autoSelectVisualization": false,
+          "chartSettings": {}
+        },
+        "querySettings": {
+          "maxResultRecords": 1000,
+          "defaultScanLimitGbytes": 500,
+          "maxResultMegaBytes": 1,
+          "defaultSamplingRatio": 10,
+          "enableSampling": false
+        },
+        "davis": {
+          "includeLogs": true,
+          "davisVisualization": {
+            "isAvailable": true
+          }
+        },
+        "visualization": "lineChart",
+        "state": "idle"
+      }
+    }
+  ]
+}

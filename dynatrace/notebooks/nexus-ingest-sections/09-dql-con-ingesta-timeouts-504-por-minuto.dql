@@ -1,1 +1,0 @@
-timeseries timeouts = sum(custom.nexus.log.adapter.timeouts), by: { cluster }, interval: 1m
