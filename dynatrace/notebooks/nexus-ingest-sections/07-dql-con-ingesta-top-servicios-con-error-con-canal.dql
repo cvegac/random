@@ -1,0 +1,8 @@
+timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }
+| fieldsAdd n = arraySum(r)
+| summarize total = sum(n), errors = sum(if(nexus.outcome == "error", n, else: 0)),
+    by: { nexus.cluster, nexus.service, nexus.channel }
+| filter errors > 0
+| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)
+| sort errors desc
+| limit 20

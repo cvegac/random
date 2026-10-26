@@ -1,0 +1,1 @@
+timeseries responses = sum(custom.nexus.log.adapter.responses), by: { nexus.outcome }, interval: 1m

@@ -1,0 +1,5 @@
+timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { nexus.component, nexus.latency_bucket }
+| fieldsAdd n = arraySum(c)
+| summarize total = sum(n), slow = sum(if(in(nexus.latency_bucket, array("1-5s", "5s+")), n, else: 0)), by: { nexus.component }
+| fieldsAdd pct_slow = round(100.0 * slow / total, decimals: 2)
+| sort pct_slow desc

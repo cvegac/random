@@ -1,0 +1,4 @@
+timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), by: { nexus.service, nexus.esb.step }, interval: 1h
+| fieldsAdd avg_ms = arrayAvg(avg_ms)
+| sort avg_ms desc
+| limit 20

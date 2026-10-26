@@ -1,0 +1,5 @@
+timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { nexus.component, nexus.kind, nexus.stream.attribute }, interval: 1h
+| fieldsAdd total = arraySum(i)
+| fields nexus.component, nexus.kind, nexus.stream.attribute, total
+| sort total desc
+| limit 20

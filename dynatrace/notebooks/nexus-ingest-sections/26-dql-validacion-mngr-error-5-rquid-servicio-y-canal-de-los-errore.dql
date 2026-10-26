@@ -1,0 +1,6 @@
+fetch logs
+| filter dt.system.bucket == "nexus_errores" and nexus.kind == "mngr_error"
+| fieldsAdd dt_prefix = contains(content, "[!dt ")
+| summarize lines = count(), no_rquid = countIf(isNull(nexus.rquid)), no_service = countIf(isNull(nexus.service)),
+    no_channel = countIf(isNull(nexus.channel)), example = takeFirst(substring(content, from: 0, to: 200)),
+    by: { dt_prefix }

@@ -1,0 +1,7 @@
+fetch logs
+| filter in(dt.system.bucket, array("logs_integracion", "nexus_errores"))
+| filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-mngr")
+| filter contains(content, "[ERROR") and coalesce(nexus.kind, "") != "mngr_error"
+| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),
+    by: { dt.system.bucket, nexus.kind, loglevel, has_cluster = isNotNull(nexus.cluster) }
+| sort lines desc
