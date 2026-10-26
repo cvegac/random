@@ -1,6 +1,6 @@
-timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { nexus.cluster, nexus.soap.operation, nexus.acceptance }
+timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, soap.operation, acceptance }
 | fieldsAdd n = arraySum(s)
-| summarize total = sum(n), m = sum(if(nexus.acceptance == "M", n, else: 0)), by: { nexus.cluster, nexus.soap.operation }
+| summarize total = sum(n), m = sum(if(acceptance == "M", n, else: 0)), by: { cluster, soap.operation }
 | fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)
 | sort m desc
 | limit 20

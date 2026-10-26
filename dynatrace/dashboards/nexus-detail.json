@@ -18,7 +18,7 @@
       "key": "Servicio",
       "name": "Servicio",
       "type": "query",
-      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and isNotNull(nexus.service)\n| summarize n = count(), by: { nexus.service }\n| fields service = nexus.service\n| append [data record(service = \"*\")]\n| sort service asc",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and isNotNull(service)\n| summarize n = count(), by: { service }\n| fields service = service\n| append [data record(service = \"*\")]\n| sort service asc",
       "multiple": false,
       "defaultValue": "*",
       "editable": true,
@@ -29,7 +29,7 @@
       "key": "Canal",
       "name": "Canal",
       "type": "query",
-      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and isNotNull(nexus.channel)\n| summarize n = count(), by: { nexus.channel }\n| fields channel = nexus.channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and isNotNull(channel)\n| summarize n = count(), by: { channel }\n| fields channel = channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
       "multiple": true,
       "defaultValue": [
         "*"

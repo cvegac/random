@@ -1,6 +1,6 @@
-timeseries l = sum(custom.nexus.log.log_lines), by: { nexus.component, loglevel }, interval: 1h
+timeseries l = sum(custom.nexus.log.log_lines), by: { component, loglevel }, interval: 1h
 | filter in(loglevel, array("ERROR", "WARN"))
 | fieldsAdd total = arraySum(l)
-| fields nexus.component, loglevel, total
+| fields component, loglevel, total
 | sort total desc
 | limit 30

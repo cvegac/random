@@ -3,60 +3,63 @@ CAMBIOS AL NOTEBOOK "Nexus · Ingesta: métricas y logs" EN EL TENANT
 Cada archivo tiene el contenido completo de una sección: abrirlo, Ctrl+A, Ctrl+C y pegarlo
 en la sección del tenant reemplazando todo su contenido.
 Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
-La sección "## 9. Alertas" no se toca: el tenant ya tiene las claves custom.nexus.log.
+La lista es todo lo que difiere de la última descarga del tenant. Si ya pegaste el paquete anterior,
+alcanza con las marcadas NUEVO: dimensiones de las métricas sin el prefijo nexus. (26/10).
 
 REEMPLAZAR (en el orden del notebook)
-01  [ ]  markdown que empieza con: ### 3. Pipeline `nexus`: ruta y procesadores (etapa Processing)
+01  [ ]         markdown que empieza con: ### 3. Pipeline `nexus`: ruta y procesadores (etapa Processing)
     archivo: 01-markdown-3-pipeline-nexus-ruta-y-procesadores-etapa-processing.md
-02  [ ]  markdown que empieza con: ### Seguimiento
+02  [ ]         markdown que empieza con: ### Seguimiento
     archivo: 02-markdown-seguimiento.md
-03  [ ]  markdown que empieza con: ## 5. Extracción de métricas (etapa Metric extraction)
+03  [ ]  NUEVO  markdown que empieza con: ## 5. Extracción de métricas (etapa Metric extraction)
     archivo: 03-markdown-5-extraccion-de-metricas-etapa-metric-extraction.md
-04  [ ]  markdown que empieza con: ## 7. Tablero general sobre métricas
+04  [ ]         markdown que empieza con: ## 7. Tablero general sobre métricas
     archivo: 04-markdown-7-tablero-general-sobre-metricas.md
-05  [ ]  DQL con título: Con ingesta: respuestas del adaptador por resultado
+05  [ ]  NUEVO  DQL con título: Con ingesta: respuestas del adaptador por resultado
     archivo: 05-dql-con-ingesta-respuestas-del-adaptador-por-resultado.dql
-06  [ ]  DQL con título: Con ingesta: % error por cluster
+06  [ ]  NUEVO  DQL con título: Con ingesta: % error por cluster
     archivo: 06-dql-con-ingesta-error-por-cluster.dql
-07  [ ]  DQL con título: Con ingesta: top servicios con error (con canal)
+07  [ ]  NUEVO  DQL con título: Con ingesta: top servicios con error (con canal)
     archivo: 07-dql-con-ingesta-top-servicios-con-error-con-canal.dql
-08  [ ]  DQL con título: Con ingesta: errores de mapeo por servicio y campo
+08  [ ]  NUEVO  DQL con título: Con ingesta: errores de mapeo por servicio y campo
     archivo: 08-dql-con-ingesta-errores-de-mapeo-por-servicio-y-campo.dql
-09  [ ]  DQL con título: Con ingesta: timeouts 504 por minuto
+09  [ ]  NUEVO  DQL con título: Con ingesta: timeouts 504 por minuto
     archivo: 09-dql-con-ingesta-timeouts-504-por-minuto.dql
-10  [ ]  DQL con título: Con ingesta: latencia de backend por adaptador
+10  [ ]  NUEVO  DQL con título: Con ingesta: latencia de backend por adaptador
     archivo: 10-dql-con-ingesta-latencia-de-backend-por-adaptador.dql
-11  [ ]  DQL con título: Con ingesta: % llamadas al backend de más de 1 s
+11  [ ]  NUEVO  DQL con título: Con ingesta: % llamadas al backend de más de 1 s
     archivo: 11-dql-con-ingesta-llamadas-al-backend-de-mas-de-1-s.dql
-12  [ ]  DQL con título: Con ingesta: respuestas al canal B, M y C por cluster
+12  [ ]  NUEVO  DQL con título: Con ingesta: respuestas al canal B, M y C por cluster
     archivo: 12-dql-con-ingesta-respuestas-al-canal-b-m-y-c-por-cluster.dql
-13  [ ]  DQL con título: Con ingesta: operaciones con más respuestas M
+13  [ ]  NUEVO  DQL con título: Con ingesta: operaciones con más respuestas M
     archivo: 13-dql-con-ingesta-operaciones-con-mas-respuestas-m.dql
-14  [ ]  DQL con título: Con ingesta: timeouts 504 y respuestas tardías de Stratus
+14  [ ]  NUEVO  DQL con título: Con ingesta: timeouts 504 y respuestas tardías de Stratus
     archivo: 14-dql-con-ingesta-timeouts-504-y-respuestas-tardias-de-stratus.dql
-15  [ ]  DQL con título: Con ingesta: WARN y ERROR por componente
+15  [ ]  NUEVO  DQL con título: Con ingesta: WARN y ERROR por componente
     archivo: 15-dql-con-ingesta-warn-y-error-por-componente.dql
-16  [ ]  DQL con título: Con ingesta: calidad de datos del backend ([STREAM])
+16  [ ]  NUEVO  DQL con título: Con ingesta: calidad de datos del backend ([STREAM])
     archivo: 16-dql-con-ingesta-calidad-de-datos-del-backend-stream.dql
-17  [ ]  DQL con título: Con ingesta: consumidor que no coincide, por cada 100 transacciones
+17  [ ]  NUEVO  DQL con título: Con ingesta: consumidor que no coincide, por cada 100 transacciones
     archivo: 17-dql-con-ingesta-consumidor-que-no-coincide-por-cada-100-transacc.dql
-18  [ ]  DQL con título: Con ingesta: pasos del ESB más lentos
+18  [ ]  NUEVO  DQL con título: Con ingesta: pasos del ESB más lentos
     archivo: 18-dql-con-ingesta-pasos-del-esb-mas-lentos.dql
-19  [ ]  DQL con título: Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)
+19  [ ]         DQL con título: Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)
     archivo: 19-dql-con-ingesta-vista-por-transaccion-de-un-servicio-reemplazar-.dql
-20  [ ]  markdown que empieza con: ## 11. Adicionar data de infraestructura
-    archivo: 20-markdown-11-adicionar-data-de-infraestructura.md
+20  [ ]  NUEVO  markdown que empieza con: ## 9. Alertas sobre las métricas de ingesta
+    archivo: 20-markdown-9-alertas-sobre-las-metricas-de-ingesta.md
+21  [ ]         markdown que empieza con: ## 11. Adicionar data de infraestructura
+    archivo: 21-markdown-11-adicionar-data-de-infraestructura.md
 
 AGREGAR después de la DQL "Hoy: respuestas del adaptador por resultado, desde logs (para comparar)", en este orden
-21  [ ]  markdown que empieza con: ### Validación de `mngr_error`
-    archivo: 21-markdown-validacion-de-mngr-error.md
-22  [ ]  DQL con título: Validación mngr_error 1: logs vs atributo, por cluster
-    archivo: 22-dql-validacion-mngr-error-1-logs-vs-atributo-por-cluster.dql
-23  [ ]  DQL con título: Validación mngr_error 2: errores que no quedaron marcados
-    archivo: 23-dql-validacion-mngr-error-2-errores-que-no-quedaron-marcados.dql
-24  [ ]  DQL con título: Validación mngr_error 3: marcados que no son error
-    archivo: 24-dql-validacion-mngr-error-3-marcados-que-no-son-error.dql
-25  [ ]  DQL con título: Validación mngr_error 4: métrica vs logs, por cluster
-    archivo: 25-dql-validacion-mngr-error-4-metrica-vs-logs-por-cluster.dql
-26  [ ]  DQL con título: Validación mngr_error 5: rquid, servicio y canal de los errores
-    archivo: 26-dql-validacion-mngr-error-5-rquid-servicio-y-canal-de-los-errore.dql
+22  [ ]         markdown que empieza con: ### Validación de `mngr_error`
+    archivo: 22-markdown-validacion-de-mngr-error.md
+23  [ ]         DQL con título: Validación mngr_error 1: logs vs atributo, por cluster
+    archivo: 23-dql-validacion-mngr-error-1-logs-vs-atributo-por-cluster.dql
+24  [ ]         DQL con título: Validación mngr_error 2: errores que no quedaron marcados
+    archivo: 24-dql-validacion-mngr-error-2-errores-que-no-quedaron-marcados.dql
+25  [ ]         DQL con título: Validación mngr_error 3: marcados que no son error
+    archivo: 25-dql-validacion-mngr-error-3-marcados-que-no-son-error.dql
+26  [ ]  NUEVO  DQL con título: Validación mngr_error 4: métrica vs logs, por cluster
+    archivo: 26-dql-validacion-mngr-error-4-metrica-vs-logs-por-cluster.dql
+27  [ ]         DQL con título: Validación mngr_error 5: rquid, servicio y canal de los errores
+    archivo: 27-dql-validacion-mngr-error-5-rquid-servicio-y-canal-de-los-errore.dql

@@ -18,7 +18,7 @@
       "key": "Servicio",
       "name": "Servicio",
       "type": "query",
-      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and isNotNull(nexus.service)\n| summarize n = count(), by: { nexus.service }\n| fields service = nexus.service\n| append [data record(service = \"*\")]\n| sort service asc",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and isNotNull(service)\n| summarize n = count(), by: { service }\n| fields service = service\n| append [data record(service = \"*\")]\n| sort service asc",
       "multiple": false,
       "defaultValue": "*",
       "editable": true,
@@ -29,7 +29,7 @@
       "key": "Canal",
       "name": "Canal",
       "type": "query",
-      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and isNotNull(nexus.channel)\n| summarize n = count(), by: { nexus.channel }\n| fields channel = nexus.channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and isNotNull(channel)\n| summarize n = count(), by: { channel }\n| fields channel = channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
       "multiple": true,
       "defaultValue": [
         "*"
@@ -64,7 +64,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "Respuestas adaptador",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n)",
       "visualizationSettings": {}
     },
     "3": {
@@ -83,7 +83,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "% OK (2xx)",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(nexus.outcome == \"ok_2xx\", n, else: 0))\n| fields pct_ok = round(100.0 * x / total, decimals: 2)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"ok_2xx\", n, else: 0))\n| fields pct_ok = round(100.0 * x / total, decimals: 2)",
       "visualizationSettings": {}
     },
     "4": {
@@ -102,7 +102,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "% 412 (negocio)",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(nexus.outcome == \"business_412\", n, else: 0))\n| fields pct_412 = round(100.0 * x / total, decimals: 2)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"business_412\", n, else: 0))\n| fields pct_412 = round(100.0 * x / total, decimals: 2)",
       "visualizationSettings": {}
     },
     "5": {
@@ -121,7 +121,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "% error",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(nexus.outcome == \"error\", n, else: 0))\n| fields pct_error = round(100.0 * x / total, decimals: 2)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"error\", n, else: 0))\n| fields pct_error = round(100.0 * x / total, decimals: 2)",
       "visualizationSettings": {}
     },
     "6": {
@@ -140,7 +140,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "Timeouts 504",
-      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n)",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n)",
       "visualizationSettings": {}
     },
     "7": {
@@ -159,7 +159,7 @@
       "type": "data",
       "visualization": "singleValue",
       "title": "% rechazo al canal (M)",
-      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { nexus.cluster, nexus.acceptance, nexus.soap.operation, nexus.soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(nexus.acceptance == \"M\", n, else: 0))\n| fields pct_m = round(100.0 * m / total, decimals: 2)",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0))\n| fields pct_m = round(100.0 * m / total, decimals: 2)",
       "visualizationSettings": {}
     },
     "8": {
@@ -178,7 +178,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize responses = sum(r[]), by: { timeframe, interval, nexus.outcome }",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize responses = sum(r[]), by: { timeframe, interval, outcome }",
       "visualizationSettings": {},
       "description": "ok_2xx y business_412 no son error"
     },
@@ -198,7 +198,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "ERRORES ADAPTADOR POR CLUSTER",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.outcome == \"error\"\n| summarize errors = sum(r[]), by: { timeframe, interval, nexus.cluster }",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| filter outcome == \"error\"\n| summarize errors = sum(r[]), by: { timeframe, interval, cluster }",
       "visualizationSettings": {}
     },
     "10": {
@@ -217,7 +217,7 @@
       "type": "data",
       "visualization": "table",
       "title": "% ERROR POR CLUSTER",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(nexus.outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(nexus.outcome == \"business_412\", n, else: 0)),\n    unknown = sum(if(nexus.outcome == \"unknown\", n, else: 0)), by: { nexus.cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)),\n    unknown = sum(if(outcome == \"unknown\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc",
       "visualizationSettings": {}
     },
     "11": {
@@ -236,7 +236,7 @@
       "type": "data",
       "visualization": "table",
       "title": "RESPUESTAS POR SERVICIO Y CANAL",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.outcome }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(nexus.outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(nexus.outcome == \"business_412\", n, else: 0)),\n    by: { nexus.cluster, nexus.service, nexus.channel }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort errors desc, total desc\n| limit 50",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)),\n    by: { cluster, service, channel }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort errors desc, total desc\n| limit 50",
       "visualizationSettings": {}
     },
     "12": {
@@ -255,7 +255,7 @@
       "type": "data",
       "visualization": "table",
       "title": "RESPUESTAS POR CÓDIGO HTTP",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster, nexus.service, nexus.channel, nexus.http_code }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { nexus.http_code }\n| sort responses desc",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, http_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { http_code }\n| sort responses desc",
       "visualizationSettings": {}
     },
     "13": {
@@ -274,7 +274,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES DE MAPEO POR SERVICIO Y CAMPO",
-      "query": "timeseries m = sum(custom.nexus.log.adapter.mapping_errors), by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(m)\n| summarize errors = sum(n), by: { nexus.cluster, nexus.service, nexus.mapping.direction, nexus.mapping.field }\n| sort errors desc\n| limit 50",
+      "query": "timeseries m = sum(custom.nexus.log.adapter.mapping_errors), by: { cluster, service, channel, mapping.direction, mapping.field }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(m)\n| summarize errors = sum(n), by: { cluster, service, mapping.direction, mapping.field }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
     "14": {
@@ -293,7 +293,7 @@
       "type": "data",
       "visualization": "barChart",
       "title": "TIMEOUTS 504 POR CLUSTER",
-      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize timeouts = sum(t[]), by: { timeframe, interval, nexus.cluster }",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize timeouts = sum(t[]), by: { timeframe, interval, cluster }",
       "visualizationSettings": {}
     },
     "15": {
@@ -312,7 +312,7 @@
       "type": "data",
       "visualization": "table",
       "title": "TIMEOUTS 504 POR SERVICIO Y CANAL",
-      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n), by: { nexus.cluster, nexus.service, nexus.channel }\n| sort timeouts desc\n| limit 50",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n), by: { cluster, service, channel }\n| sort timeouts desc\n| limit 50",
       "visualizationSettings": {}
     },
     "16": {
@@ -331,7 +331,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "RESPUESTAS TARDÍAS DE STRATUS",
-      "query": "timeseries late_replies = sum(custom.nexus.log.adapter.stratus_late_replies), by: { nexus.cluster, nexus.component }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsKeep timeframe, interval, nexus.component, late_replies",
+      "query": "timeseries late_replies = sum(custom.nexus.log.adapter.stratus_late_replies), by: { cluster, component }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsKeep timeframe, interval, component, late_replies",
       "visualizationSettings": {},
       "description": "Stratus contestó después de que el adaptador cortó. Un 504 sin respuesta tardía = Stratus no contestó"
     },
@@ -351,7 +351,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "LATENCIA BACKEND POR ADAPTADOR (promedio ms)",
-      "query": "timeseries avg_ms = avg(custom.nexus.log.adapter.backend_ms), by: { nexus.cluster, nexus.component }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsKeep timeframe, interval, nexus.component, avg_ms",
+      "query": "timeseries avg_ms = avg(custom.nexus.log.adapter.backend_ms), by: { cluster, component }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsKeep timeframe, interval, component, avg_ms",
       "visualizationSettings": {}
     },
     "18": {
@@ -370,7 +370,7 @@
       "type": "data",
       "visualization": "table",
       "title": "LLAMADAS AL BACKEND POR TRAMO DE LATENCIA",
-      "query": "timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { nexus.cluster, nexus.component, nexus.latency_bucket }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd n = arraySum(c)\n| summarize calls = sum(n),\n    slow_1s = sum(if(in(nexus.latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)),\n    slow_5s = sum(if(nexus.latency_bucket == \"5s+\", n, else: 0)), by: { nexus.component }\n| fieldsAdd pct_over_1s = round(100.0 * slow_1s / calls, decimals: 2),\n            pct_over_5s = round(100.0 * slow_5s / calls, decimals: 2)\n| lookup [\n    timeseries m = max(custom.nexus.log.adapter.backend_ms), by: { nexus.component }\n    | fieldsAdd max_ms = arrayMax(m)\n  ], sourceField: nexus.component, lookupField: nexus.component, fields: { max_ms }\n| sort pct_over_1s desc",
+      "query": "timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { cluster, component, latency_bucket }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(c)\n| summarize calls = sum(n),\n    slow_1s = sum(if(in(latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)),\n    slow_5s = sum(if(latency_bucket == \"5s+\", n, else: 0)), by: { component }\n| fieldsAdd pct_over_1s = round(100.0 * slow_1s / calls, decimals: 2),\n            pct_over_5s = round(100.0 * slow_5s / calls, decimals: 2)\n| lookup [\n    timeseries m = max(custom.nexus.log.adapter.backend_ms), by: { component }\n    | fieldsAdd max_ms = arrayMax(m)\n  ], sourceField: component, lookupField: component, fields: { max_ms }\n| sort pct_over_1s desc",
       "visualizationSettings": {},
       "description": "Reemplazo del p95: % de llamadas que tardan más de 1 s y de 5 s"
     },
@@ -390,7 +390,7 @@
       "type": "data",
       "visualization": "table",
       "title": "CALIDAD DE DATOS DEL BACKEND ([STREAM])",
-      "query": "timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { nexus.cluster, nexus.component, nexus.kind, nexus.stream.attribute }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd n = arraySum(i)\n| summarize issues = sum(n), by: { nexus.component, nexus.kind, nexus.stream.attribute }\n| sort issues desc\n| limit 30",
+      "query": "timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { cluster, component, kind, stream.attribute }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(i)\n| summarize issues = sum(n), by: { component, kind, stream.attribute }\n| sort issues desc\n| limit 30",
       "visualizationSettings": {}
     },
     "20": {
@@ -413,7 +413,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "RESPUESTAS AL CANAL EN EL TIEMPO (B / M / C)",
-      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { nexus.cluster, nexus.acceptance, nexus.soap.operation, nexus.soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize responses = sum(s[]), by: { timeframe, interval, nexus.acceptance }",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize responses = sum(s[]), by: { timeframe, interval, acceptance }",
       "visualizationSettings": {},
       "description": "C (corregido) va aparte hasta que negocio defina si es éxito o falla"
     },
@@ -433,7 +433,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "ERRORES DEL MNGR POR CLUSTER",
-      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = sum(e[]), by: { timeframe, interval, nexus.cluster }",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize errors = sum(e[]), by: { timeframe, interval, cluster }",
       "visualizationSettings": {}
     },
     "23": {
@@ -452,7 +452,7 @@
       "type": "data",
       "visualization": "table",
       "title": "RESPUESTAS AL CANAL POR CLUSTER",
-      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { nexus.cluster, nexus.acceptance, nexus.soap.operation, nexus.soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), b = sum(if(nexus.acceptance == \"B\", n, else: 0)),\n    m = sum(if(nexus.acceptance == \"M\", n, else: 0)), c = sum(if(nexus.acceptance == \"C\", n, else: 0)),\n    by: { nexus.cluster }\n| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),\n            pct_c = round(100.0 * c / total, decimals: 2)\n| sort pct_m desc",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), b = sum(if(acceptance == \"B\", n, else: 0)),\n    m = sum(if(acceptance == \"M\", n, else: 0)), c = sum(if(acceptance == \"C\", n, else: 0)),\n    by: { cluster }\n| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),\n            pct_c = round(100.0 * c / total, decimals: 2)\n| sort pct_m desc",
       "visualizationSettings": {}
     },
     "24": {
@@ -471,7 +471,7 @@
       "type": "data",
       "visualization": "table",
       "title": "OPERACIONES CON MÁS RESPUESTAS M",
-      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { nexus.cluster, nexus.acceptance, nexus.soap.operation, nexus.soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(nexus.acceptance == \"M\", n, else: 0)),\n    by: { nexus.cluster, nexus.soap.operation, nexus.soap.msg_code }\n| filter m > 0\n| fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)\n| sort m desc\n| limit 30",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0)),\n    by: { cluster, soap.operation, soap.msg_code }\n| filter m > 0\n| fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)\n| sort m desc\n| limit 30",
       "visualizationSettings": {}
     },
     "25": {
@@ -490,7 +490,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES DEL MNGR POR SERVICIO Y CANAL",
-      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd errors = arraySum(e)\n| fields nexus.cluster, nexus.service, nexus.channel, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd errors = arraySum(e)\n| fields cluster, service, channel, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
       "visualizationSettings": {}
     },
     "26": {
@@ -509,7 +509,7 @@
       "type": "data",
       "visualization": "table",
       "title": "CONSUMIDOR QUE NO COINCIDE (por 100 tx)",
-      "query": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { nexus.cluster }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)\n| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)\n| fields nexus.cluster, mismatches, transactions, per_100_tx\n| sort per_100_tx desc",
+      "query": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)\n| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)\n| fields cluster, mismatches, transactions, per_100_tx\n| sort per_100_tx desc",
       "visualizationSettings": {}
     },
     "27": {
@@ -528,7 +528,7 @@
       "type": "data",
       "visualization": "table",
       "title": "PASOS DEL ESB MÁS LENTOS",
-      "query": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), max_ms = max(custom.nexus.log.esb.step_ms), by: { nexus.cluster, nexus.service, nexus.esb.step }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| fieldsAdd avg_ms = round(arrayAvg(avg_ms), decimals: 1), max_ms = arrayMax(max_ms)\n| fields nexus.cluster, nexus.service, nexus.esb.step, avg_ms, max_ms\n| sort avg_ms desc\n| limit 30",
+      "query": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), max_ms = max(custom.nexus.log.esb.step_ms), by: { cluster, service, esb.step }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio)\n| fieldsAdd avg_ms = round(arrayAvg(avg_ms), decimals: 1), max_ms = arrayMax(max_ms)\n| fields cluster, service, esb.step, avg_ms, max_ms\n| sort avg_ms desc\n| limit 30",
       "visualizationSettings": {},
       "description": "avg_ms es el promedio de los promedios por intervalo"
     },
@@ -552,7 +552,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "LÍNEAS DE LOG POR NIVEL",
-      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { nexus.cluster, loglevel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize lines = sum(l[]), by: { timeframe, interval, loglevel }",
+      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize lines = sum(l[]), by: { timeframe, interval, loglevel }",
       "visualizationSettings": {},
       "description": "Sin los errores de apagado del adaptador"
     },
@@ -572,7 +572,7 @@
       "type": "data",
       "visualization": "table",
       "title": "WARN Y ERROR POR COMPONENTE",
-      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { nexus.cluster, nexus.component, loglevel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and in(loglevel, array(\"ERROR\", \"WARN\"))\n| fieldsAdd lines = arraySum(l)\n| fields nexus.component, loglevel, lines\n| sort lines desc\n| limit 30",
+      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, component, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and in(loglevel, array(\"ERROR\", \"WARN\"))\n| fieldsAdd lines = arraySum(l)\n| fields component, loglevel, lines\n| sort lines desc\n| limit 30",
       "visualizationSettings": {}
     }
   },

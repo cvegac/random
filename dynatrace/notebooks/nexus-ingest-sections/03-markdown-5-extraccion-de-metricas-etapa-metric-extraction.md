@@ -1,7 +1,9 @@
 ## 5. Extracción de métricas (etapa Metric extraction)
 
 Cada métrica se extrae de las líneas que matchean su condición, con los atributos `nexus.*` como dimensiones.
-Las claves de las métricas en el tenant empiezan con `custom.nexus.log.`.
+Las claves de las métricas en el tenant empiezan con `custom.nexus.log.`. Sus dimensiones se llaman como en la
+columna Dimensiones, sin el prefijo `nexus.` de los atributos: en las consultas sobre métricas se filtra y agrupa
+por `cluster`, `outcome`, `service`...; en las consultas sobre logs, por `nexus.cluster`, `nexus.outcome`...
 
 | Hecho | Métrica | Tipo | Condición | Dimensiones | Reemplaza en el tablero |
 |---|---|---|---|---|---|
