@@ -145,17 +145,37 @@
         "maxResultRecords": 1000
       },
       "type": "data",
+      "visualization": "honeycomb",
+      "title": "MAPA DE CLUSTERS (últimos 30 min)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster, outcome }, from: now()-32m, to: now()-2m\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / responses, decimals: 2)\n| fieldsAdd rank = if(responses >= 20 and pct_error >= 10, 2, else: if(responses >= 20 and pct_error >= 5, 1, else: 0))\n| fields alert_id = 0, cluster, rank, responses, pct_error,\n    text = if(rank > 0, concat(\"% error en 30 min: \", toString(pct_error), \"% contra umbral \",\n                               if(rank == 2, \"10\", else: \"5\"), \"%, \"))\n| append [\n    timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n            filter: outcome == \"error\", interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { errors }\n    | fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, error_pct\n    | fieldsAdd above = if(error_pct[] > 5, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(error_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 1, cluster, rank,\n        text = if(rank > 0, concat(\"% error\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 5%, \"))\n  ]\n| append [\n    timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(timeouts[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(timeouts),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 2, cluster, rank,\n        text = if(rank > 0, concat(\"Timeouts 504\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 2 por minuto, \"))\n  ]\n| append [\n    timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(mapping_errors[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(mapping_errors),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 3, cluster, rank,\n        text = if(rank > 0, concat(\"Errores de mapeo\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 2 por minuto, \"))\n  ]\n| append [\n    timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: startsWith(http_code, \"5\"), interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(backend_5xx[] > 1, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(backend_5xx),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 4, cluster, rank,\n        text = if(rank > 0, concat(\"5xx del backend\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 1 por minuto, \"))\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n            filter: acceptance == \"M\", interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { rejected }\n    | fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, rejection_pct\n    | fieldsAdd above = if(rejection_pct[] > 40, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(rejection_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 5, cluster, rank,\n        text = if(rank > 0, concat(\"Respuestas M al canal\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 40%, \"))\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n            filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { slow }\n    | fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, slow_pct\n    | fieldsAdd above = if(slow_pct[] > 5, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(slow_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 7, cluster, rank,\n        text = if(rank > 0, concat(\"Llamadas de más de 1 s\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 5%, \"))\n  ]\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize rank = max(rank), by: { cluster }\n| fields cluster, rank",
+      "visualizationSettings": {},
+      "description": "0 = BIEN, 1 = REVISAR, 2 = MAL"
+    },
+    "6": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
       "visualization": "table",
       "title": "ESTADO POR CLUSTER (últimos 30 min)",
       "query": "timeseries r = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster, outcome }, from: now()-32m, to: now()-2m\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / responses, decimals: 2)\n| fieldsAdd rank = if(responses >= 20 and pct_error >= 10, 2, else: if(responses >= 20 and pct_error >= 5, 1, else: 0))\n| fields alert_id = 0, cluster, rank, responses, pct_error,\n    text = if(rank > 0, concat(\"% error en 30 min: \", toString(pct_error), \"% contra umbral \",\n                               if(rank == 2, \"10\", else: \"5\"), \"%, \"))\n| append [\n    timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n            filter: outcome == \"error\", interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { errors }\n    | fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, error_pct\n    | fieldsAdd above = if(error_pct[] > 5, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(error_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 1, cluster, rank,\n        text = if(rank > 0, concat(\"% error\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 5%, \"))\n  ]\n| append [\n    timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(timeouts[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(timeouts),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 2, cluster, rank,\n        text = if(rank > 0, concat(\"Timeouts 504\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 2 por minuto, \"))\n  ]\n| append [\n    timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(mapping_errors[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(mapping_errors),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 3, cluster, rank,\n        text = if(rank > 0, concat(\"Errores de mapeo\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 2 por minuto, \"))\n  ]\n| append [\n    timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: startsWith(http_code, \"5\"), interval: 1m, from: now()-32m, to: now()-2m\n    | fieldsAdd above = if(backend_5xx[] > 1, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(backend_5xx),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 4, cluster, rank,\n        text = if(rank > 0, concat(\"5xx del backend\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(toLong(peak)), \" por minuto contra umbral 1 por minuto, \"))\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n            filter: acceptance == \"M\", interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { rejected }\n    | fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, rejection_pct\n    | fieldsAdd above = if(rejection_pct[] > 40, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(rejection_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 5, cluster, rank,\n        text = if(rank > 0, concat(\"Respuestas M al canal\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 40%, \"))\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m, from: now()-32m, to: now()-2m\n    | join [\n        timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n            filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m, from: now()-32m, to: now()-2m\n      ], on: { cluster }, fields: { slow }\n    | fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, slow_pct\n    | fieldsAdd above = if(slow_pct[] > 5, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fieldsAdd peak = arrayMax(slow_pct),\n        rank = if(arrayLast(firing) == 1, 2, else: if(arraySum(firing) > 0, 1, else: 0))\n    | fields alert_id = 7, cluster, rank,\n        text = if(rank > 0, concat(\"Llamadas de más de 1 s\", if(rank == 2, \" disparando\", else: \" disparó y se recuperó\"),\n                                   \": pico \", toString(round(peak, decimals: 1)), \"% contra umbral 5%, \"))\n  ]\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize rank = max(rank), responses = max(responses), pct_error = max(pct_error),\n    t0 = max(if(alert_id == 0, text)), t1 = max(if(alert_id == 1, text)), t2 = max(if(alert_id == 2, text)), t3 = max(if(alert_id == 3, text)), t4 = max(if(alert_id == 4, text)), t5 = max(if(alert_id == 5, text)), t7 = max(if(alert_id == 7, text)),\n    by: { cluster }\n| fieldsAdd joined = concat(coalesce(t0, \"\"), coalesce(t1, \"\"), coalesce(t2, \"\"), coalesce(t3, \"\"), coalesce(t4, \"\"), coalesce(t5, \"\"), coalesce(t7, \"\"))\n| fieldsAdd alertas = if(joined == \"\", \"ninguna\", else: substring(joined, from: 0, to: stringLength(joined) - 2)),\n            estado = if(rank == 2, \"MAL\", else: if(rank == 1, \"REVISAR\", else: \"BIEN\"))\n| sort rank desc, responses desc\n| fields cluster, estado, alertas, responses, pct_error",
       "visualizationSettings": {},
       "description": "Últimos 30 minutos completos. alertas = qué puso al cluster en MAL o REVISAR, con el pico y el umbral"
     },
-    "6": {
+    "7": {
       "type": "markdown",
       "content": "### 1. Adaptadores\nMétricas de ingesta: cualquier rango cuesta lo mismo, con datos desde que se creó cada métrica."
     },
-    "7": {
+    "8": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -174,45 +194,7 @@
       "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n)",
       "visualizationSettings": {}
     },
-    "8": {
-      "davis": {
-        "davisVisualization": {
-          "isAvailable": true
-        }
-      },
-      "querySettings": {
-        "defaultSamplingRatio": 10,
-        "defaultScanLimitGbytes": 500,
-        "enableSampling": false,
-        "maxResultMegaBytes": 1,
-        "maxResultRecords": 1000
-      },
-      "type": "data",
-      "visualization": "singleValue",
-      "title": "% OK (2xx)",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"ok_2xx\", n, else: 0))\n| fields pct_ok = round(100.0 * x / total, decimals: 2)",
-      "visualizationSettings": {}
-    },
     "9": {
-      "davis": {
-        "davisVisualization": {
-          "isAvailable": true
-        }
-      },
-      "querySettings": {
-        "defaultSamplingRatio": 10,
-        "defaultScanLimitGbytes": 500,
-        "enableSampling": false,
-        "maxResultMegaBytes": 1,
-        "maxResultRecords": 1000
-      },
-      "type": "data",
-      "visualization": "singleValue",
-      "title": "% 412 (negocio)",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"business_412\", n, else: 0))\n| fields pct_412 = round(100.0 * x / total, decimals: 2)",
-      "visualizationSettings": {}
-    },
-    "10": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -231,7 +213,7 @@
       "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"error\", n, else: 0))\n| fields pct_error = round(100.0 * x / total, decimals: 2)",
       "visualizationSettings": {}
     },
-    "11": {
+    "10": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -250,7 +232,7 @@
       "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n)",
       "visualizationSettings": {}
     },
-    "12": {
+    "11": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -269,6 +251,26 @@
       "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0))\n| fields pct_m = round(100.0 * m / total, decimals: 2)",
       "visualizationSettings": {}
     },
+    "12": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "donutChart",
+      "title": "COMPOSICIÓN DE RESPUESTAS",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { outcome }\n| fields outcome = outcome, responses",
+      "visualizationSettings": {},
+      "description": "ok_2xx y business_412 no son error"
+    },
     "13": {
       "davis": {
         "davisVisualization": {
@@ -283,7 +285,7 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "lineChart",
+      "visualization": "areaChart",
       "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
       "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize responses = sum(r[]), by: { timeframe, interval, outcome }",
       "visualizationSettings": {},
@@ -322,9 +324,9 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "table",
+      "visualization": "categoricalBarChart",
       "title": "% ERROR POR CLUSTER",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)),\n    unknown = sum(if(outcome == \"unknown\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)), by: { cluster }\n| fields cluster = cluster, pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc",
       "visualizationSettings": {}
     },
     "16": {
@@ -360,9 +362,9 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "table",
+      "visualization": "donutChart",
       "title": "RESPUESTAS POR CÓDIGO HTTP",
-      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, http_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { http_code }\n| sort responses desc",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, http_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { http_code }\n| fields code = toString(http_code), responses\n| sort responses desc\n| limit 8",
       "visualizationSettings": {}
     },
     "18": {
@@ -475,13 +477,33 @@
         "maxResultRecords": 1000
       },
       "type": "data",
+      "visualization": "heatmap",
+      "title": "% LLAMADAS DE MÁS DE 1 S POR ADAPTADOR EN EL TIEMPO",
+      "query": "timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster, component }\n| join [\n    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster, component },\n        filter: in(latency_bucket, array(\"1-5s\", \"5s+\"))\n  ], on: { cluster, component }, fields: { slow }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd pct_slow = if(total[] > 0, 100.0 * slow[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, component, pct_slow",
+      "visualizationSettings": {},
+      "description": "Cada fila es un adaptador; más oscuro = más llamadas lentas"
+    },
+    "24": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
       "visualization": "table",
       "title": "LLAMADAS AL BACKEND POR TRAMO DE LATENCIA",
       "query": "timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { cluster, component, latency_bucket }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(c)\n| summarize calls = sum(n),\n    slow_1s = sum(if(in(latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)),\n    slow_5s = sum(if(latency_bucket == \"5s+\", n, else: 0)), by: { component }\n| fieldsAdd pct_over_1s = round(100.0 * slow_1s / calls, decimals: 2),\n            pct_over_5s = round(100.0 * slow_5s / calls, decimals: 2)\n| lookup [\n    timeseries m = max(custom.nexus.log.adapter.backend_ms), by: { component }\n    | fieldsAdd max_ms = arrayMax(m)\n  ], sourceField: component, lookupField: component, fields: { max_ms }\n| sort pct_over_1s desc",
       "visualizationSettings": {},
       "description": "Reemplazo del p95: % de llamadas que tardan más de 1 s y de 5 s"
     },
-    "24": {
+    "25": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -500,11 +522,11 @@
       "query": "timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { cluster, component, kind, stream.attribute }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(i)\n| summarize issues = sum(n), by: { component, kind, stream.attribute }\n| sort issues desc\n| limit 30",
       "visualizationSettings": {}
     },
-    "25": {
+    "26": {
       "type": "markdown",
       "content": "### 2. Proxy WS / ESB"
     },
-    "26": {
+    "27": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -518,13 +540,13 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "lineChart",
+      "visualization": "areaChart",
       "title": "RESPUESTAS AL CANAL EN EL TIEMPO (B / M / C)",
       "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize responses = sum(s[]), by: { timeframe, interval, acceptance }",
       "visualizationSettings": {},
       "description": "C (corregido) va aparte hasta que negocio defina si es éxito o falla"
     },
-    "27": {
+    "28": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -543,7 +565,7 @@
       "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize errors = sum(e[]), by: { timeframe, interval, cluster }",
       "visualizationSettings": {}
     },
-    "28": {
+    "29": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -557,12 +579,12 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "table",
-      "title": "RESPUESTAS AL CANAL POR CLUSTER",
-      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), b = sum(if(acceptance == \"B\", n, else: 0)),\n    m = sum(if(acceptance == \"M\", n, else: 0)), c = sum(if(acceptance == \"C\", n, else: 0)),\n    by: { cluster }\n| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),\n            pct_c = round(100.0 * c / total, decimals: 2)\n| sort pct_m desc",
+      "visualization": "categoricalBarChart",
+      "title": "% RESPUESTAS M POR CLUSTER",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0)), by: { cluster }\n| fields cluster = cluster, pct_m = round(100.0 * m / total, decimals: 2)\n| sort pct_m desc",
       "visualizationSettings": {}
     },
-    "29": {
+    "30": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -581,7 +603,7 @@
       "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0)),\n    by: { cluster, soap.operation, soap.msg_code }\n| filter m > 0\n| fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)\n| sort m desc\n| limit 30",
       "visualizationSettings": {}
     },
-    "30": {
+    "31": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -600,25 +622,6 @@
       "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd errors = arraySum(e)\n| fields cluster, service, channel, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
       "visualizationSettings": {}
     },
-    "31": {
-      "davis": {
-        "davisVisualization": {
-          "isAvailable": true
-        }
-      },
-      "querySettings": {
-        "defaultSamplingRatio": 10,
-        "defaultScanLimitGbytes": 500,
-        "enableSampling": false,
-        "maxResultMegaBytes": 1,
-        "maxResultRecords": 1000
-      },
-      "type": "data",
-      "visualization": "table",
-      "title": "CONSUMIDOR QUE NO COINCIDE (por 100 tx)",
-      "query": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)\n| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)\n| fields cluster, mismatches, transactions, per_100_tx\n| sort per_100_tx desc",
-      "visualizationSettings": {}
-    },
     "32": {
       "davis": {
         "davisVisualization": {
@@ -633,17 +636,36 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "table",
-      "title": "PASOS DEL ESB MÁS LENTOS",
-      "query": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), max_ms = max(custom.nexus.log.esb.step_ms), by: { cluster, service, esb.step }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio)\n| fieldsAdd avg_ms = round(arrayAvg(avg_ms), decimals: 1), max_ms = arrayMax(max_ms)\n| fields cluster, service, esb.step, avg_ms, max_ms\n| sort avg_ms desc\n| limit 30",
-      "visualizationSettings": {},
-      "description": "avg_ms es el promedio de los promedios por intervalo"
+      "visualization": "categoricalBarChart",
+      "title": "CONSUMIDOR QUE NO COINCIDE (por 100 tx)",
+      "query": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fields cluster = cluster, per_100_tx = round(100.0 * arraySum(mm) / arraySum(tx), decimals: 1)\n| sort per_100_tx desc",
+      "visualizationSettings": {}
     },
     "33": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "categoricalBarChart",
+      "title": "PASOS DEL ESB MÁS LENTOS",
+      "query": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), by: { cluster, service, esb.step }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio)\n| fieldsAdd avg_ms = arrayAvg(avg_ms)\n| summarize avg_ms = round(avg(avg_ms), decimals: 1), by: { service, esb.step }\n| fields step = concat(service, \" / \", esb.step), avg_ms\n| sort avg_ms desc\n| limit 15",
+      "visualizationSettings": {},
+      "description": "Promedio en ms, servicio / paso"
+    },
+    "34": {
       "type": "markdown",
       "content": "### 3. Alertas en el rango\nLas mismas series que evalúa Anomaly Detection, por cluster. "
     },
-    "34": {
+    "35": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -663,7 +685,7 @@
       "visualizationSettings": {},
       "description": "minutes_firing = minutos en que se cumplía 3 de 5 (aproximación, sin dealerting). Sin filas: ningún cluster pasó un umbral en el rango"
     },
-    "35": {
+    "36": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -683,7 +705,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 5%, 3 de 5 minutos"
     },
-    "36": {
+    "37": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -703,7 +725,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 2 por minuto, 3 de 5 minutos"
     },
-    "37": {
+    "38": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -723,7 +745,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 2 por minuto, 3 de 5 minutos"
     },
-    "38": {
+    "39": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -743,7 +765,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 1 por minuto, 3 de 5 minutos"
     },
-    "39": {
+    "40": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -763,7 +785,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 40%, 3 de 5 minutos"
     },
-    "40": {
+    "41": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -783,7 +805,7 @@
       "visualizationSettings": {},
       "description": "Analizador auto-adaptativo"
     },
-    "41": {
+    "42": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -803,7 +825,7 @@
       "visualizationSettings": {},
       "description": "Umbral fijo: 5%, 3 de 5 minutos"
     },
-    "42": {
+    "43": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -823,7 +845,7 @@
       "visualizationSettings": {},
       "description": "Analizador auto-adaptativo"
     },
-    "43": {
+    "44": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -843,7 +865,7 @@
       "visualizationSettings": {},
       "description": "Analizador auto-adaptativo"
     },
-    "44": {
+    "45": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -863,7 +885,7 @@
       "visualizationSettings": {},
       "description": "Analizador auto-adaptativo"
     },
-    "45": {
+    "46": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -883,11 +905,11 @@
       "visualizationSettings": {},
       "description": "Línea base estacional, BELOW"
     },
-    "46": {
+    "47": {
       "type": "markdown",
       "content": "### 4. Volumen de logs"
     },
-    "47": {
+    "48": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -901,13 +923,13 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "lineChart",
+      "visualization": "areaChart",
       "title": "LÍNEAS DE LOG POR NIVEL",
       "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize lines = sum(l[]), by: { timeframe, interval, loglevel }",
       "visualizationSettings": {},
       "description": "Sin los errores de apagado del adaptador"
     },
-    "48": {
+    "49": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -926,11 +948,11 @@
       "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, component, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and in(loglevel, array(\"ERROR\", \"WARN\"))\n| fieldsAdd lines = arraySum(l)\n| fields component, loglevel, lines\n| sort lines desc\n| limit 30",
       "visualizationSettings": {}
     },
-    "49": {
+    "50": {
       "type": "markdown",
       "content": "### 5. Detalle de errores\nLee logs del bucket `nexus_errores`: conviene un rango corto."
     },
-    "50": {
+    "51": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -944,12 +966,31 @@
         "maxResultRecords": 1000
       },
       "type": "data",
-      "visualization": "lineChart",
+      "visualization": "barChart",
       "title": "ERRORES EN EL TIEMPO POR TIPO",
       "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
       "visualizationSettings": {}
     },
-    "51": {
+    "52": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "donutChart",
+      "title": "ERRORES POR TIPO",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.kind }\n| fields kind = nexus.kind, errors\n| sort errors desc",
+      "visualizationSettings": {}
+    },
+    "53": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -968,7 +1009,7 @@
       "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
-    "52": {
+    "54": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -987,7 +1028,7 @@
       "query": "// the example is built at query time; 1= values may be customer data, so digits become 9\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50",
       "visualizationSettings": {}
     },
-    "53": {
+    "55": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1007,7 +1048,7 @@
       "visualizationSettings": {},
       "description": "Respuestas fuera de 2xx y 412"
     },
-    "54": {
+    "56": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1026,7 +1067,7 @@
       "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter in(nexus.kind, array(\"timeout_504\", \"stratus_late_reply\"))\n| fields timestamp, nexus.kind, nexus.component, nexus.service, nexus.channel, nexus.rquid\n| sort timestamp desc\n| limit 200",
       "visualizationSettings": {}
     },
-    "55": {
+    "57": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1045,7 +1086,7 @@
       "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, pattern }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
-    "56": {
+    "58": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1065,11 +1106,11 @@
       "visualizationSettings": {},
       "description": "El canal no viaja en la respuesta SOAP"
     },
-    "57": {
+    "59": {
       "type": "markdown",
       "content": "### 6. Transacciones y traza por rquid\nLee logs de los dos buckets: rango corto, alrededor de la transacción. Rquid ignora los filtros."
     },
-    "58": {
+    "60": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1089,7 +1130,7 @@
       "visualizationSettings": {},
       "description": "Elegir un servicio y un rango corto"
     },
-    "59": {
+    "61": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1108,11 +1149,11 @@
       "query": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter nexus.rquid == $Rquid or contains(content, $Rquid)\n| fields timestamp, nexus.component, nexus.kind, nexus.duration_ms, content\n| sort timestamp asc\n| limit 1000",
       "visualizationSettings": {}
     },
-    "60": {
+    "62": {
       "type": "markdown",
       "content": "### 7. Salud del pipeline (últimos 15 minutos, ignora los filtros)"
     },
-    "61": {
+    "63": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1132,7 +1173,7 @@
       "visualizationSettings": {},
       "description": "routed = cumple la condición de la ruta; processed = la ingesta agregó nexus.cluster"
     },
-    "62": {
+    "64": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1152,7 +1193,7 @@
       "visualizationSettings": {},
       "description": "Usa el rango del tablero. total 0 = la métrica no tiene datos"
     },
-    "63": {
+    "65": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1172,7 +1213,7 @@
       "visualizationSettings": {},
       "description": "Esperado: nexus_errores solo con true y logs_integracion solo con false"
     },
-    "64": {
+    "66": {
       "davis": {
         "davisVisualization": {
           "isAvailable": true
@@ -1227,49 +1268,49 @@
     "5": {
       "x": 0,
       "y": 6,
-      "w": 24,
+      "w": 8,
       "h": 7
     },
     "6": {
+      "x": 8,
+      "y": 6,
+      "w": 16,
+      "h": 7
+    },
+    "7": {
       "x": 0,
       "y": 13,
       "w": 24,
       "h": 2
     },
-    "7": {
+    "8": {
       "x": 0,
       "y": 15,
       "w": 4,
       "h": 4
     },
-    "8": {
+    "9": {
       "x": 4,
       "y": 15,
       "w": 4,
       "h": 4
     },
-    "9": {
+    "10": {
       "x": 8,
       "y": 15,
       "w": 4,
       "h": 4
     },
-    "10": {
+    "11": {
       "x": 12,
       "y": 15,
       "w": 4,
       "h": 4
     },
-    "11": {
+    "12": {
       "x": 16,
       "y": 15,
-      "w": 4,
-      "h": 4
-    },
-    "12": {
-      "x": 20,
-      "y": 15,
-      "w": 4,
+      "w": 8,
       "h": 4
     },
     "13": {
@@ -1335,252 +1376,264 @@
     "23": {
       "x": 0,
       "y": 53,
+      "w": 24,
+      "h": 6
+    },
+    "24": {
+      "x": 0,
+      "y": 59,
       "w": 14,
       "h": 7
     },
-    "24": {
+    "25": {
       "x": 14,
-      "y": 53,
+      "y": 59,
       "w": 10,
       "h": 7
     },
-    "25": {
+    "26": {
       "x": 0,
-      "y": 60,
+      "y": 66,
       "w": 24,
       "h": 1
     },
-    "26": {
-      "x": 0,
-      "y": 61,
-      "w": 12,
-      "h": 6
-    },
     "27": {
-      "x": 12,
-      "y": 61,
+      "x": 0,
+      "y": 67,
       "w": 12,
       "h": 6
     },
     "28": {
-      "x": 0,
-      "y": 67,
-      "w": 12,
-      "h": 8
-    },
-    "29": {
       "x": 12,
       "y": 67,
+      "w": 12,
+      "h": 6
+    },
+    "29": {
+      "x": 0,
+      "y": 73,
       "w": 12,
       "h": 8
     },
     "30": {
-      "x": 0,
-      "y": 75,
-      "w": 8,
+      "x": 12,
+      "y": 73,
+      "w": 12,
       "h": 8
     },
     "31": {
-      "x": 8,
-      "y": 75,
+      "x": 0,
+      "y": 81,
       "w": 8,
       "h": 8
     },
     "32": {
-      "x": 16,
-      "y": 75,
+      "x": 8,
+      "y": 81,
       "w": 8,
       "h": 8
     },
     "33": {
-      "x": 0,
-      "y": 83,
-      "w": 24,
-      "h": 2
+      "x": 16,
+      "y": 81,
+      "w": 8,
+      "h": 8
     },
     "34": {
       "x": 0,
-      "y": 85,
+      "y": 89,
       "w": 24,
-      "h": 7
+      "h": 2
     },
     "35": {
       "x": 0,
-      "y": 92,
-      "w": 8,
-      "h": 5
+      "y": 91,
+      "w": 24,
+      "h": 7
     },
     "36": {
-      "x": 8,
-      "y": 92,
+      "x": 0,
+      "y": 98,
       "w": 8,
       "h": 5
     },
     "37": {
-      "x": 16,
-      "y": 92,
+      "x": 8,
+      "y": 98,
       "w": 8,
       "h": 5
     },
     "38": {
-      "x": 0,
-      "y": 97,
+      "x": 16,
+      "y": 98,
       "w": 8,
       "h": 5
     },
     "39": {
-      "x": 8,
-      "y": 97,
+      "x": 0,
+      "y": 103,
       "w": 8,
       "h": 5
     },
     "40": {
-      "x": 16,
-      "y": 97,
+      "x": 8,
+      "y": 103,
       "w": 8,
       "h": 5
     },
     "41": {
-      "x": 0,
-      "y": 102,
+      "x": 16,
+      "y": 103,
       "w": 8,
       "h": 5
     },
     "42": {
-      "x": 8,
-      "y": 102,
+      "x": 0,
+      "y": 108,
       "w": 8,
       "h": 5
     },
     "43": {
-      "x": 16,
-      "y": 102,
+      "x": 8,
+      "y": 108,
       "w": 8,
       "h": 5
     },
     "44": {
-      "x": 0,
-      "y": 107,
-      "w": 12,
+      "x": 16,
+      "y": 108,
+      "w": 8,
       "h": 5
     },
     "45": {
-      "x": 12,
-      "y": 107,
+      "x": 0,
+      "y": 113,
       "w": 12,
       "h": 5
     },
     "46": {
-      "x": 0,
-      "y": 112,
-      "w": 24,
-      "h": 1
+      "x": 12,
+      "y": 113,
+      "w": 12,
+      "h": 5
     },
     "47": {
       "x": 0,
-      "y": 113,
-      "w": 12,
-      "h": 7
+      "y": 118,
+      "w": 24,
+      "h": 1
     },
     "48": {
-      "x": 12,
-      "y": 113,
+      "x": 0,
+      "y": 119,
       "w": 12,
       "h": 7
     },
     "49": {
-      "x": 0,
-      "y": 120,
-      "w": 24,
-      "h": 2
+      "x": 12,
+      "y": 119,
+      "w": 12,
+      "h": 7
     },
     "50": {
       "x": 0,
-      "y": 122,
-      "w": 12,
-      "h": 6
-    },
-    "51": {
-      "x": 12,
-      "y": 122,
-      "w": 12,
-      "h": 6
-    },
-    "52": {
-      "x": 0,
-      "y": 128,
-      "w": 24,
-      "h": 8
-    },
-    "53": {
-      "x": 0,
-      "y": 136,
-      "w": 24,
-      "h": 8
-    },
-    "54": {
-      "x": 0,
-      "y": 144,
-      "w": 24,
-      "h": 7
-    },
-    "55": {
-      "x": 0,
-      "y": 151,
-      "w": 12,
-      "h": 8
-    },
-    "56": {
-      "x": 12,
-      "y": 151,
-      "w": 12,
-      "h": 8
-    },
-    "57": {
-      "x": 0,
-      "y": 159,
+      "y": 126,
       "w": 24,
       "h": 2
     },
-    "58": {
+    "51": {
       "x": 0,
-      "y": 161,
+      "y": 128,
+      "w": 16,
+      "h": 6
+    },
+    "52": {
+      "x": 16,
+      "y": 128,
+      "w": 8,
+      "h": 6
+    },
+    "53": {
+      "x": 0,
+      "y": 134,
       "w": 24,
+      "h": 7
+    },
+    "54": {
+      "x": 0,
+      "y": 141,
+      "w": 24,
+      "h": 8
+    },
+    "55": {
+      "x": 0,
+      "y": 149,
+      "w": 24,
+      "h": 8
+    },
+    "56": {
+      "x": 0,
+      "y": 157,
+      "w": 24,
+      "h": 7
+    },
+    "57": {
+      "x": 0,
+      "y": 164,
+      "w": 12,
+      "h": 8
+    },
+    "58": {
+      "x": 12,
+      "y": 164,
+      "w": 12,
       "h": 8
     },
     "59": {
       "x": 0,
-      "y": 169,
+      "y": 172,
       "w": 24,
-      "h": 10
+      "h": 2
     },
     "60": {
       "x": 0,
-      "y": 179,
+      "y": 174,
       "w": 24,
-      "h": 1
+      "h": 8
     },
     "61": {
       "x": 0,
-      "y": 180,
-      "w": 12,
-      "h": 7
+      "y": 182,
+      "w": 24,
+      "h": 10
     },
     "62": {
-      "x": 12,
-      "y": 180,
-      "w": 12,
-      "h": 7
+      "x": 0,
+      "y": 192,
+      "w": 24,
+      "h": 1
     },
     "63": {
       "x": 0,
-      "y": 187,
+      "y": 193,
       "w": 12,
       "h": 7
     },
     "64": {
       "x": 12,
-      "y": 187,
+      "y": 193,
+      "w": 12,
+      "h": 7
+    },
+    "65": {
+      "x": 0,
+      "y": 200,
+      "w": 12,
+      "h": 7
+    },
+    "66": {
+      "x": 12,
+      "y": 200,
       "w": 12,
       "h": 7
     }
