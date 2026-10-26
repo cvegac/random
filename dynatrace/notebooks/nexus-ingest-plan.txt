@@ -31,6 +31,8 @@ VIERNES 23/10 - tarde: validar y consumir
    [ ] Crear las 11 alertas (notebook Alertas) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
 LUNES 26/10 - ajustar y entregar
+   [ ] Sacar matchesValue(nexus.acceptance, "M") de la regla del bucket bck-nexus-error-log: las respuestas
+       M son de negocio y llenaban el bucket de errores (se siguen como % M en las métricas).
    [x] Notebook separado en 4 (contexto, pipeline, tablero, alertas), con pruebas por procesador, métrica
        y alerta. Importar los 4 en el tenant y borrar el notebook "Nexus · Ingesta: métricas y logs".
    [ ] mngr_error: correr la validación de mngr_error (notebook Pipeline). Corregir el procesador 6 (rquid y canal) y el 7

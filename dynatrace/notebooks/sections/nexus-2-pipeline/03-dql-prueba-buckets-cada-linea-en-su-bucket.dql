@@ -1,0 +1,5 @@
+// expected: bck-nexus-error-log only with should_be_error = true, logs_integracion only with false
+fetch logs
+| filter in(dt.system.bucket, array("logs_integracion", "bck-nexus-error-log")) and isNotNull(nexus.cluster)
+| fieldsAdd should_be_error = coalesce(matchesValue(nexus.kind, "mapping_error") or matchesValue(nexus.kind, "timeout_504") or matchesValue(nexus.kind, "technical_error") or matchesValue(nexus.kind, "mngr_error") or matchesValue(nexus.kind, "stratus_late_reply") or matchesValue(nexus.kind, "stream_*") or matchesValue(nexus.outcome, "error"), false)
+| summarize lines = count(), by: { dt.system.bucket, should_be_error }

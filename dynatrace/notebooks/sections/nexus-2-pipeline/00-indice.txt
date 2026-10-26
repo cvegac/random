@@ -1,20 +1,25 @@
-CAMBIOS AL NOTEBOOK nexus-2-pipeline EN EL TENANT (26/10): el bucket de errores se llama bck-nexus-error-log
+CAMBIOS AL NOTEBOOK nexus-2-pipeline EN EL TENANT
+
+Todo lo que cambió desde que se importó el notebook. Si ya pegaste el paquete anterior, alcanza con las
+marcadas NUEVO (26/10: sin soap_resp en el detalle de errores ni en la regla del bucket).
 
 Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
 Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
 
 REEMPLAZAR
-01  [ ]  markdown que empieza con: ## Buckets (etapa Storage)
-    archivo: 01-markdown-buckets-etapa-storage.md
-02  [ ]  DQL con título: Prueba buckets: cada línea en su bucket
-    archivo: 02-dql-prueba-buckets-cada-linea-en-su-bucket.dql
-03  [ ]  DQL con título: Validación mngr_error 1: logs vs atributo, por cluster
-    archivo: 03-dql-validacion-mngr-error-1-logs-vs-atributo-por-cluster.dql
-04  [ ]  DQL con título: Validación mngr_error 2: errores que no quedaron marcados
-    archivo: 04-dql-validacion-mngr-error-2-errores-que-no-quedaron-marcados.dql
-05  [ ]  DQL con título: Validación mngr_error 3: marcados que no son error
-    archivo: 05-dql-validacion-mngr-error-3-marcados-que-no-son-error.dql
-06  [ ]  DQL con título: Validación mngr_error 4: métrica vs logs, por cluster
-    archivo: 06-dql-validacion-mngr-error-4-metrica-vs-logs-por-cluster.dql
-07  [ ]  DQL con título: Validación mngr_error 5: rquid, servicio y canal de los errores
-    archivo: 07-dql-validacion-mngr-error-5-rquid-servicio-y-canal-de-los-errore.dql
+01  [ ]         markdown que empieza con: ## Métricas (etapa Metric extraction)
+    archivo: 01-markdown-metricas-etapa-metric-extraction.md
+02  [ ]  NUEVO  markdown que empieza con: ## Buckets (etapa Storage)
+    archivo: 02-markdown-buckets-etapa-storage.md
+03  [ ]  NUEVO  DQL con título: Prueba buckets: cada línea en su bucket
+    archivo: 03-dql-prueba-buckets-cada-linea-en-su-bucket.dql
+04  [ ]         DQL con título: Validación mngr_error 1: logs vs atributo, por cluster
+    archivo: 04-dql-validacion-mngr-error-1-logs-vs-atributo-por-cluster.dql
+05  [ ]         DQL con título: Validación mngr_error 2: errores que no quedaron marcados
+    archivo: 05-dql-validacion-mngr-error-2-errores-que-no-quedaron-marcados.dql
+06  [ ]         DQL con título: Validación mngr_error 3: marcados que no son error
+    archivo: 06-dql-validacion-mngr-error-3-marcados-que-no-son-error.dql
+07  [ ]         DQL con título: Validación mngr_error 4: métrica vs logs, por cluster
+    archivo: 07-dql-validacion-mngr-error-4-metrica-vs-logs-por-cluster.dql
+08  [ ]         DQL con título: Validación mngr_error 5: rquid, servicio y canal de los errores
+    archivo: 08-dql-validacion-mngr-error-5-rquid-servicio-y-canal-de-los-errore.dql

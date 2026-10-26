@@ -564,7 +564,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
+          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and coalesce(nexus.kind, \"\") != \"soap_resp\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,

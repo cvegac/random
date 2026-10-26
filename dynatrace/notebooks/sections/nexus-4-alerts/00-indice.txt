@@ -1,7 +1,11 @@
-CAMBIOS AL NOTEBOOK nexus-4-alerts EN EL TENANT (26/10)
+CAMBIOS AL NOTEBOOK nexus-4-alerts EN EL TENANT
 
-Abrir el archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
+Todo lo que cambió desde que se importó el notebook. Si ya pegaste el paquete anterior, alcanza con las
+marcadas NUEVO (26/10: sin soap_resp en el detalle de errores ni en la regla del bucket).
+
+Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
+Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
 
 REEMPLAZAR
-01  [ ]  markdown que empieza con: ### 5. % respuestas M al canal
+01  [ ]         markdown que empieza con: ### 5. % respuestas M al canal
     archivo: 01-markdown-5-respuestas-m-al-canal.md
