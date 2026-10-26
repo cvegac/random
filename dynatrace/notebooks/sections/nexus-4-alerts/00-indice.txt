@@ -1,0 +1,7 @@
+CAMBIOS AL NOTEBOOK nexus-4-alerts EN EL TENANT (26/10)
+
+Abrir el archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
+
+REEMPLAZAR
+01  [ ]  markdown que empieza con: ### 5. % respuestas M al canal
+    archivo: 01-markdown-5-respuestas-m-al-canal.md

@@ -430,7 +430,7 @@
     {
       "type": "markdown",
       "id": "f4a5f226-9774-43bf-9cd0-78045ddffe1e",
-      "markdown": "### 5. % respuestas M al canal\n\nLa C no cuenta como M hasta que negocio defina qué es. Estático, ABOVE, umbral 40 % (a calibrar; después, línea base estacional). Necesita la métrica `soap_responses`, todavía sin crear."
+      "markdown": "### 5. % respuestas M al canal\n\nLa C no cuenta como M hasta que negocio defina qué es. Estático, ABOVE, umbral 40 % (a calibrar; después, línea base estacional)."
     },
     {
       "type": "dql",
