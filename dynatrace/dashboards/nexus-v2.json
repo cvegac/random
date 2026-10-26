@@ -1,0 +1,1470 @@
+{
+  "version": 21,
+  "variables": [
+    {
+      "key": "Cluster",
+      "name": "Cluster",
+      "type": "csv",
+      "input": "*,accountsws,investmentsws,loansws,paymentsws,productsws,clientsws,credit-cardsws,remittancesws,acquiringws,securityws,insurancesws",
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Servicio",
+      "name": "Servicio",
+      "type": "query",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and isNotNull(service)\n| summarize n = count(), by: { service }\n| fields service = service\n| append [data record(service = \"*\")]\n| sort service asc",
+      "multiple": false,
+      "defaultValue": "*",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Canal",
+      "name": "Canal",
+      "type": "query",
+      "input": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and isNotNull(channel)\n| summarize n = count(), by: { channel }\n| fields channel = channel\n| append [data record(channel = \"*\")]\n| sort channel asc",
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "editable": true,
+      "visible": true,
+      "version": 3
+    },
+    {
+      "key": "Rquid",
+      "name": "Rquid",
+      "type": "text",
+      "defaultValue": "sin-rquid",
+      "editable": true,
+      "visible": true,
+      "version": 3
+    }
+  ],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "## Nexus V2\nLas secciones 1 a 4 leen las métricas de ingesta (`custom.nexus.log.*`): cuestan lo mismo con cualquier rango, pero solo tienen datos desde que se creó cada una; `soap_responses` todavía no existe, así que las tiles B / M / C y la alerta 5 salen vacías. Las secciones 5 y 6 leen logs: conviene un rango corto, sobre todo para la traza por rquid. La 7 mira siempre los últimos 15 minutos. Cluster: uno, varios o `*`. Servicio y Canal filtran respuestas, errores de mapeo, timeouts y errores del mngr; las alertas solo se filtran por Cluster."
+    },
+    "1": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "Respuestas adaptador",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n)",
+      "visualizationSettings": {}
+    },
+    "2": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% OK (2xx)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"ok_2xx\", n, else: 0))\n| fields pct_ok = round(100.0 * x / total, decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "3": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% 412 (negocio)",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"business_412\", n, else: 0))\n| fields pct_412 = round(100.0 * x / total, decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "4": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% error",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), x = sum(if(outcome == \"error\", n, else: 0))\n| fields pct_error = round(100.0 * x / total, decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "5": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "Timeouts 504",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n)",
+      "visualizationSettings": {}
+    },
+    "6": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "singleValue",
+      "title": "% rechazo al canal (M)",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0))\n| fields pct_m = round(100.0 * m / total, decimals: 2)",
+      "visualizationSettings": {}
+    },
+    "7": {
+      "type": "markdown",
+      "content": "### 1. Alertas"
+    },
+    "8": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ALERTAS DE UMBRAL FIJO: MINUTOS SOBRE EL UMBRAL",
+      "query": "timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: outcome == \"error\", interval: 1m\n  ], on: { cluster }, fields: { errors }\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, error_pct\n| fieldsAdd above = if(error_pct[] > 5, 1, else: 0)\n| fieldsAdd win5 = arrayMovingSum(above, 5)\n| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n| fields alert = \"1. % error real del adaptador (umbral 5%)\", cluster,\n    max_value = arrayMax(error_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n| append [\n    timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m\n    | fieldsAdd above = if(timeouts[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fields alert = \"2. Timeouts 504 (umbral 2 por minuto)\", cluster,\n        max_value = arrayMax(timeouts), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n  ]\n| append [\n    timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m\n    | fieldsAdd above = if(mapping_errors[] > 2, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fields alert = \"3. Errores de mapeo (umbral 2 por minuto)\", cluster,\n        max_value = arrayMax(mapping_errors), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n  ]\n| append [\n    timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: startsWith(http_code, \"5\"), interval: 1m\n    | fieldsAdd above = if(backend_5xx[] > 1, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fields alert = \"4. 5xx del backend (umbral 1 por minuto)\", cluster,\n        max_value = arrayMax(backend_5xx), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m\n    | join [\n        timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n            filter: acceptance == \"M\", interval: 1m\n      ], on: { cluster }, fields: { rejected }\n    | fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, rejection_pct\n    | fieldsAdd above = if(rejection_pct[] > 40, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fields alert = \"5. % respuestas M al canal (umbral 40%)\", cluster,\n        max_value = arrayMax(rejection_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n  ]\n| append [\n    timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m\n    | join [\n        timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n            filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m\n      ], on: { cluster }, fields: { slow }\n    | fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n    | fieldsKeep timeframe, interval, cluster, slow_pct\n    | fieldsAdd above = if(slow_pct[] > 5, 1, else: 0)\n    | fieldsAdd win5 = arrayMovingSum(above, 5)\n    | fieldsAdd firing = if(win5[] >= 3, 1, else: 0)\n    | fields alert = \"7. % llamadas al backend de más de 1 s (umbral 5%)\", cluster,\n        max_value = arrayMax(slow_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)\n  ]\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and minutes_above > 0\n| sort minutes_firing desc, minutes_above desc",
+      "visualizationSettings": {},
+      "description": "minutes_firing = minutos en que se cumplía 3 de 5 (aproximación, sin dealerting). Sin filas: ningún cluster pasó un umbral en el rango"
+    },
+    "9": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "1. % ERROR REAL DEL ADAPTADOR",
+      "query": "timeseries total = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries errors = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n        filter: outcome == \"error\", interval: 1m\n  ], on: { cluster }, fields: { errors }\n| fieldsAdd error_pct = if(total[] > 10, 100.0 * errors[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, error_pct\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 5%, 3 de 5 minutos"
+    },
+    "10": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "2. TIMEOUTS 504",
+      "query": "timeseries timeouts = sum(custom.nexus.log.adapter.timeouts, default: 0), by: { cluster }, interval: 1m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 2 por minuto, 3 de 5 minutos"
+    },
+    "11": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "3. ERRORES DE MAPEO",
+      "query": "timeseries mapping_errors = sum(custom.nexus.log.adapter.mapping_errors, default: 0), by: { cluster }, interval: 1m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 2 por minuto, 3 de 5 minutos"
+    },
+    "12": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "4. 5XX DEL BACKEND",
+      "query": "timeseries backend_5xx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster },\n    filter: startsWith(http_code, \"5\"), interval: 1m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 1 por minuto, 3 de 5 minutos"
+    },
+    "13": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "5. % RESPUESTAS M AL CANAL",
+      "query": "timeseries total = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries rejected = sum(custom.nexus.log.mngr.soap_responses, default: 0), by: { cluster },\n        filter: acceptance == \"M\", interval: 1m\n  ], on: { cluster }, fields: { rejected }\n| fieldsAdd rejection_pct = if(total[] > 10, 100.0 * rejected[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, rejection_pct\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 40%, 3 de 5 minutos. Sin datos hasta crear la métrica soap_responses"
+    },
+    "14": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "6. ERRORES DEL MNGR",
+      "query": "timeseries mngr_errors = sum(custom.nexus.log.mngr.errors, default: 0), by: { cluster }, interval: 1m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Analizador auto-adaptativo"
+    },
+    "15": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "7. % LLAMADAS AL BACKEND DE MÁS DE 1 S",
+      "query": "timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m\n| join [\n    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },\n        filter: in(latency_bucket, array(\"1-5s\", \"5s+\")), interval: 1m\n  ], on: { cluster }, fields: { slow }\n| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, slow_pct\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Umbral fijo: 5%, 3 de 5 minutos"
+    },
+    "16": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "8. RESPUESTAS TARDÍAS DE STRATUS",
+      "query": "timeseries late_replies = sum(custom.nexus.log.adapter.stratus_late_replies, default: 0), by: { cluster }, interval: 1m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Analizador auto-adaptativo"
+    },
+    "17": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "9. CONSUMIDOR QUE NO COINCIDE, POR CADA 100 TRANSACCIONES",
+      "query": "timeseries tx = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 5m\n| join [\n    timeseries mismatches = sum(custom.nexus.log.mngr.consumer_mismatch, default: 0), by: { cluster }, interval: 5m\n  ], on: { cluster }, fields: { mismatches }\n| fieldsAdd per_100_tx = if(tx[] > 50, 100.0 * mismatches[] / tx[], else: 0.0)\n| fieldsKeep timeframe, interval, cluster, per_100_tx\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Analizador auto-adaptativo"
+    },
+    "18": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "10. DATOS INCOMPLETOS DEL BACKEND",
+      "query": "timeseries stream_issues = sum(custom.nexus.log.adapter.stream_issues, default: 0), by: { cluster }, interval: 5m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Analizador auto-adaptativo"
+    },
+    "19": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "11. CAÍDA DE TRÁFICO",
+      "query": "timeseries responses = sum(custom.nexus.log.adapter.responses, default: 0), by: { cluster }, interval: 5m\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))",
+      "visualizationSettings": {},
+      "description": "Línea base estacional, BELOW"
+    },
+    "20": {
+      "type": "markdown",
+      "content": "### 2. Adaptadores"
+    },
+    "21": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "RESPUESTAS ADAPTADOR EN EL TIEMPO",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize responses = sum(r[]), by: { timeframe, interval, outcome }",
+      "visualizationSettings": {},
+      "description": "ok_2xx y business_412 no son error"
+    },
+    "22": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERRORES ADAPTADOR POR CLUSTER",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| filter outcome == \"error\"\n| summarize errors = sum(r[]), by: { timeframe, interval, cluster }",
+      "visualizationSettings": {}
+    },
+    "23": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "% ERROR POR CLUSTER",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)),\n    unknown = sum(if(outcome == \"unknown\", n, else: 0)), by: { cluster }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort pct_error desc",
+      "visualizationSettings": {}
+    },
+    "24": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RESPUESTAS POR SERVICIO Y CANAL",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, outcome }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize total = sum(n), errors = sum(if(outcome == \"error\", n, else: 0)),\n    business_412 = sum(if(outcome == \"business_412\", n, else: 0)),\n    by: { cluster, service, channel }\n| fieldsAdd pct_error = round(100.0 * errors / total, decimals: 2)\n| sort errors desc, total desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "25": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RESPUESTAS POR CÓDIGO HTTP",
+      "query": "timeseries r = sum(custom.nexus.log.adapter.responses), by: { cluster, service, channel, http_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(r)\n| summarize responses = sum(n), by: { http_code }\n| sort responses desc",
+      "visualizationSettings": {}
+    },
+    "26": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DE MAPEO POR SERVICIO Y CAMPO",
+      "query": "timeseries m = sum(custom.nexus.log.adapter.mapping_errors), by: { cluster, service, channel, mapping.direction, mapping.field }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(m)\n| summarize errors = sum(n), by: { cluster, service, mapping.direction, mapping.field }\n| sort errors desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "27": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "barChart",
+      "title": "TIMEOUTS 504 POR CLUSTER",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize timeouts = sum(t[]), by: { timeframe, interval, cluster }",
+      "visualizationSettings": {}
+    },
+    "28": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TIMEOUTS 504 POR SERVICIO Y CANAL",
+      "query": "timeseries t = sum(custom.nexus.log.adapter.timeouts), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd n = arraySum(t)\n| summarize timeouts = sum(n), by: { cluster, service, channel }\n| sort timeouts desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "29": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "RESPUESTAS TARDÍAS DE STRATUS",
+      "query": "timeseries late_replies = sum(custom.nexus.log.adapter.stratus_late_replies), by: { cluster, component }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsKeep timeframe, interval, component, late_replies",
+      "visualizationSettings": {},
+      "description": "Stratus contestó después de que el adaptador cortó. Un 504 sin respuesta tardía = Stratus no contestó"
+    },
+    "30": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "LATENCIA BACKEND POR ADAPTADOR (promedio ms)",
+      "query": "timeseries avg_ms = avg(custom.nexus.log.adapter.backend_ms), by: { cluster, component }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsKeep timeframe, interval, component, avg_ms",
+      "visualizationSettings": {}
+    },
+    "31": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "LLAMADAS AL BACKEND POR TRAMO DE LATENCIA",
+      "query": "timeseries c = sum(custom.nexus.log.adapter.backend_calls), by: { cluster, component, latency_bucket }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(c)\n| summarize calls = sum(n),\n    slow_1s = sum(if(in(latency_bucket, array(\"1-5s\", \"5s+\")), n, else: 0)),\n    slow_5s = sum(if(latency_bucket == \"5s+\", n, else: 0)), by: { component }\n| fieldsAdd pct_over_1s = round(100.0 * slow_1s / calls, decimals: 2),\n            pct_over_5s = round(100.0 * slow_5s / calls, decimals: 2)\n| lookup [\n    timeseries m = max(custom.nexus.log.adapter.backend_ms), by: { component }\n    | fieldsAdd max_ms = arrayMax(m)\n  ], sourceField: component, lookupField: component, fields: { max_ms }\n| sort pct_over_1s desc",
+      "visualizationSettings": {},
+      "description": "Reemplazo del p95: % de llamadas que tardan más de 1 s y de 5 s"
+    },
+    "32": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "CALIDAD DE DATOS DEL BACKEND ([STREAM])",
+      "query": "timeseries i = sum(custom.nexus.log.adapter.stream_issues), by: { cluster, component, kind, stream.attribute }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(i)\n| summarize issues = sum(n), by: { component, kind, stream.attribute }\n| sort issues desc\n| limit 30",
+      "visualizationSettings": {}
+    },
+    "33": {
+      "type": "markdown",
+      "content": "### 3. Proxy WS / ESB"
+    },
+    "34": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "RESPUESTAS AL CANAL EN EL TIEMPO (B / M / C)",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize responses = sum(s[]), by: { timeframe, interval, acceptance }",
+      "visualizationSettings": {},
+      "description": "C (corregido) va aparte hasta que negocio defina si es éxito o falla"
+    },
+    "35": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERRORES DEL MNGR POR CLUSTER",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| summarize errors = sum(e[]), by: { timeframe, interval, cluster }",
+      "visualizationSettings": {}
+    },
+    "36": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RESPUESTAS AL CANAL POR CLUSTER",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), b = sum(if(acceptance == \"B\", n, else: 0)),\n    m = sum(if(acceptance == \"M\", n, else: 0)), c = sum(if(acceptance == \"C\", n, else: 0)),\n    by: { cluster }\n| fieldsAdd pct_b = round(100.0 * b / total, decimals: 2), pct_m = round(100.0 * m / total, decimals: 2),\n            pct_c = round(100.0 * c / total, decimals: 2)\n| sort pct_m desc",
+      "visualizationSettings": {}
+    },
+    "37": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "OPERACIONES CON MÁS RESPUESTAS M",
+      "query": "timeseries s = sum(custom.nexus.log.mngr.soap_responses), by: { cluster, acceptance, soap.operation, soap.msg_code }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd n = arraySum(s)\n| summarize total = sum(n), m = sum(if(acceptance == \"M\", n, else: 0)),\n    by: { cluster, soap.operation, soap.msg_code }\n| filter m > 0\n| fieldsAdd pct_m = round(100.0 * m / total, decimals: 2)\n| sort m desc\n| limit 30",
+      "visualizationSettings": {}
+    },
+    "38": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DEL MNGR POR SERVICIO Y CANAL",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { cluster, service, channel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio) and (in(\"*\", $Canal) or in(channel, $Canal))\n| fieldsAdd errors = arraySum(e)\n| fields cluster, service, channel, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
+      "visualizationSettings": {}
+    },
+    "39": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "CONSUMIDOR QUE NO COINCIDE (por 100 tx)",
+      "query": "timeseries mm = sum(custom.nexus.log.mngr.consumer_mismatch), tx = sum(custom.nexus.log.adapter.responses), by: { cluster }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| fieldsAdd mismatches = arraySum(mm), transactions = arraySum(tx)\n| fieldsAdd per_100_tx = round(100.0 * mismatches / transactions, decimals: 1)\n| fields cluster, mismatches, transactions, per_100_tx\n| sort per_100_tx desc",
+      "visualizationSettings": {}
+    },
+    "40": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "PASOS DEL ESB MÁS LENTOS",
+      "query": "timeseries avg_ms = avg(custom.nexus.log.esb.step_ms), max_ms = max(custom.nexus.log.esb.step_ms), by: { cluster, service, esb.step }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and ($Servicio == \"*\" or service == $Servicio)\n| fieldsAdd avg_ms = round(arrayAvg(avg_ms), decimals: 1), max_ms = arrayMax(max_ms)\n| fields cluster, service, esb.step, avg_ms, max_ms\n| sort avg_ms desc\n| limit 30",
+      "visualizationSettings": {},
+      "description": "avg_ms es el promedio de los promedios por intervalo"
+    },
+    "41": {
+      "type": "markdown",
+      "content": "### 4. Volumen de logs"
+    },
+    "42": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "LÍNEAS DE LOG POR NIVEL",
+      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster))\n| summarize lines = sum(l[]), by: { timeframe, interval, loglevel }",
+      "visualizationSettings": {},
+      "description": "Sin los errores de apagado del adaptador"
+    },
+    "43": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "WARN Y ERROR POR COMPONENTE",
+      "query": "timeseries l = sum(custom.nexus.log.log_lines), by: { cluster, component, loglevel }\n| filter (in(\"*\", $Cluster) or in(cluster, $Cluster)) and in(loglevel, array(\"ERROR\", \"WARN\"))\n| fieldsAdd lines = arraySum(l)\n| fields component, loglevel, lines\n| sort lines desc\n| limit 30",
+      "visualizationSettings": {}
+    },
+    "44": {
+      "type": "markdown",
+      "content": "### 5. Detalle de errores (bucket nexus_errores)"
+    },
+    "45": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "lineChart",
+      "title": "ERRORES EN EL TIEMPO POR TIPO",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
+      "visualizationSettings": {}
+    },
+    "46": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES POR CLUSTER, SERVICIO, CANAL Y TIPO",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "47": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DE MAPEO CON EJEMPLO",
+      "query": "// the example is built at query time; 1= values may be customer data, so digits become 9\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "48": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RQUIDS CON ERROR (respuesta del adaptador)",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"audit_resp\" and nexus.outcome == \"error\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| fields timestamp, nexus.cluster, nexus.service, nexus.channel, nexus.rquid, nexus.http_code, error_system, error_message\n| sort timestamp desc\n| limit 200",
+      "visualizationSettings": {},
+      "description": "Respuestas fuera de 2xx y 412"
+    },
+    "49": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TIMEOUTS 504 Y RESPUESTAS TARDÍAS DE STRATUS",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter in(nexus.kind, array(\"timeout_504\", \"stratus_late_reply\"))\n| fields timestamp, nexus.kind, nexus.component, nexus.service, nexus.channel, nexus.rquid\n| sort timestamp desc\n| limit 200",
+      "visualizationSettings": {}
+    },
+    "50": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DEL MNGR POR MENSAJE",
+      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, pattern }\n| sort errors desc\n| limit 50",
+      "visualizationSettings": {}
+    },
+    "51": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "RECHAZOS AL CANAL (M)",
+      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.acceptance == \"M\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize rejections = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.soap.operation, nexus.soap.msg_code }\n| sort rejections desc\n| limit 50",
+      "visualizationSettings": {},
+      "description": "El canal no viaja en la respuesta SOAP"
+    },
+    "52": {
+      "type": "markdown",
+      "content": "### 6. Transacciones y traza por rquid (Rquid ignora los filtros)"
+    },
+    "53": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "VISTA POR TRANSACCIÓN",
+      "query": "// one row per rquid: what the channel got, how long the ESB and the backend took\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter isNotNull(nexus.rquid) and (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.cluster, nexus.service, nexus.rquid }\n| filter in(\"*\", $Canal) or in(channel, $Canal)\n| sort esb_ms desc\n| limit 200",
+      "visualizationSettings": {},
+      "description": "Elegir un servicio y un rango corto"
+    },
+    "54": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "TRAZA RQUID",
+      "query": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter nexus.rquid == $Rquid or contains(content, $Rquid)\n| fields timestamp, nexus.component, nexus.kind, nexus.duration_ms, content\n| sort timestamp asc\n| limit 1000",
+      "visualizationSettings": {}
+    },
+    "55": {
+      "type": "markdown",
+      "content": "### 7. Salud del pipeline (últimos 15 minutos, ignora los filtros)"
+    },
+    "56": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "LOG GROUPS ENRUTADOS Y PROCESADOS",
+      "query": "// routed = matches the route condition; processed = the pipeline added nexus.cluster\nfetch logs, from: now()-15m\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\")\n| fieldsAdd routed = matchesValue(aws.log_group, \"/aws/ecs/srv/*\") and (matchesValue(aws.log_group, \"*-adapter\") or matchesValue(aws.log_group, \"*-mngr\")), processed = isNotNull(nexus.cluster)\n| summarize lines = count(), by: { aws.log_group, routed, processed }\n| sort aws.log_group asc",
+      "visualizationSettings": {},
+      "description": "routed = cumple la condición de la ruta; processed = la ingesta agregó nexus.cluster"
+    },
+    "57": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "MÉTRICAS CON DATOS EN EL RANGO",
+      "query": "// one row per metric; total 0 = no data in the timeframe\ndata record(metric = \"adapter.responses\", total = 0.0),\n     record(metric = \"adapter.mapping_errors\", total = 0.0),\n     record(metric = \"adapter.timeouts\", total = 0.0),\n     record(metric = \"adapter.backend_ms\", total = 0.0),\n     record(metric = \"adapter.backend_calls\", total = 0.0),\n     record(metric = \"mngr.errors\", total = 0.0),\n     record(metric = \"mngr.soap_responses\", total = 0.0),\n     record(metric = \"mngr.consumer_mismatch\", total = 0.0),\n     record(metric = \"adapter.stratus_late_replies\", total = 0.0),\n     record(metric = \"adapter.stream_issues\", total = 0.0),\n     record(metric = \"log_lines\", total = 0.0),\n     record(metric = \"esb.step_ms\", total = 0.0)\n| append [timeseries v = sum(custom.nexus.log.adapter.responses) | fields metric = \"adapter.responses\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.mapping_errors) | fields metric = \"adapter.mapping_errors\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.timeouts) | fields metric = \"adapter.timeouts\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.backend_ms) | fields metric = \"adapter.backend_ms\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.backend_calls) | fields metric = \"adapter.backend_calls\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.mngr.errors) | fields metric = \"mngr.errors\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.mngr.soap_responses) | fields metric = \"mngr.soap_responses\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.mngr.consumer_mismatch) | fields metric = \"mngr.consumer_mismatch\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.stratus_late_replies) | fields metric = \"adapter.stratus_late_replies\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.adapter.stream_issues) | fields metric = \"adapter.stream_issues\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.log_lines) | fields metric = \"log_lines\", total = toDouble(arraySum(v))]\n| append [timeseries v = sum(custom.nexus.log.esb.step_ms) | fields metric = \"esb.step_ms\", total = toDouble(arraySum(v))]\n| summarize total = max(total), by: { metric }\n| sort total asc",
+      "visualizationSettings": {},
+      "description": "Usa el rango del tablero. total 0 = la métrica no tiene datos"
+    },
+    "58": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "LÍNEAS POR BUCKET",
+      "query": "// expected: nexus_errores only with should_be_error = true, logs_integracion only with false\nfetch logs, from: now()-15m\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\")) and isNotNull(nexus.cluster)\n| fieldsAdd should_be_error = coalesce(matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\"), false)\n| summarize lines = count(), by: { dt.system.bucket, should_be_error }",
+      "visualizationSettings": {},
+      "description": "Esperado: nexus_errores solo con true y logs_integracion solo con false"
+    },
+    "59": {
+      "davis": {
+        "davisVisualization": {
+          "isAvailable": true
+        }
+      },
+      "querySettings": {
+        "defaultSamplingRatio": 10,
+        "defaultScanLimitGbytes": 500,
+        "enableSampling": false,
+        "maxResultMegaBytes": 1,
+        "maxResultRecords": 1000
+      },
+      "type": "data",
+      "visualization": "table",
+      "title": "ERRORES DEL MNGR: LOGS VS ATRIBUTO",
+      "query": "// truth = the old alert's definition: case-sensitive \"[ERROR\" in a ws mngr line\nfetch logs, from: now()-15m\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| fieldsAdd truth = contains(content, \"[ERROR\"), tagged = coalesce(nexus.kind, \"\") == \"mngr_error\"\n| summarize truth = countIf(truth), tagged = countIf(tagged),\n    missed = countIf(truth and not tagged), extra = countIf(tagged and not truth),\n    in_errors_bucket = countIf(truth and dt.system.bucket == \"nexus_errores\"), by: { cluster }\n| sort truth desc",
+      "visualizationSettings": {},
+      "description": "Esperado: missed = 0 y extra = 0"
+    }
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "2": {
+      "x": 4,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "3": {
+      "x": 8,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "4": {
+      "x": 12,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "5": {
+      "x": 16,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "6": {
+      "x": 20,
+      "y": 2,
+      "w": 4,
+      "h": 4
+    },
+    "7": {
+      "x": 0,
+      "y": 6,
+      "w": 24,
+      "h": 1
+    },
+    "8": {
+      "x": 0,
+      "y": 7,
+      "w": 24,
+      "h": 7
+    },
+    "9": {
+      "x": 0,
+      "y": 14,
+      "w": 8,
+      "h": 5
+    },
+    "10": {
+      "x": 8,
+      "y": 14,
+      "w": 8,
+      "h": 5
+    },
+    "11": {
+      "x": 16,
+      "y": 14,
+      "w": 8,
+      "h": 5
+    },
+    "12": {
+      "x": 0,
+      "y": 19,
+      "w": 8,
+      "h": 5
+    },
+    "13": {
+      "x": 8,
+      "y": 19,
+      "w": 8,
+      "h": 5
+    },
+    "14": {
+      "x": 16,
+      "y": 19,
+      "w": 8,
+      "h": 5
+    },
+    "15": {
+      "x": 0,
+      "y": 24,
+      "w": 8,
+      "h": 5
+    },
+    "16": {
+      "x": 8,
+      "y": 24,
+      "w": 8,
+      "h": 5
+    },
+    "17": {
+      "x": 16,
+      "y": 24,
+      "w": 8,
+      "h": 5
+    },
+    "18": {
+      "x": 0,
+      "y": 29,
+      "w": 12,
+      "h": 5
+    },
+    "19": {
+      "x": 12,
+      "y": 29,
+      "w": 12,
+      "h": 5
+    },
+    "20": {
+      "x": 0,
+      "y": 34,
+      "w": 24,
+      "h": 1
+    },
+    "21": {
+      "x": 0,
+      "y": 35,
+      "w": 12,
+      "h": 6
+    },
+    "22": {
+      "x": 12,
+      "y": 35,
+      "w": 12,
+      "h": 6
+    },
+    "23": {
+      "x": 0,
+      "y": 41,
+      "w": 12,
+      "h": 8
+    },
+    "24": {
+      "x": 12,
+      "y": 41,
+      "w": 12,
+      "h": 8
+    },
+    "25": {
+      "x": 0,
+      "y": 49,
+      "w": 12,
+      "h": 8
+    },
+    "26": {
+      "x": 12,
+      "y": 49,
+      "w": 12,
+      "h": 8
+    },
+    "27": {
+      "x": 0,
+      "y": 57,
+      "w": 12,
+      "h": 6
+    },
+    "28": {
+      "x": 12,
+      "y": 57,
+      "w": 12,
+      "h": 6
+    },
+    "29": {
+      "x": 0,
+      "y": 63,
+      "w": 12,
+      "h": 6
+    },
+    "30": {
+      "x": 12,
+      "y": 63,
+      "w": 12,
+      "h": 6
+    },
+    "31": {
+      "x": 0,
+      "y": 69,
+      "w": 14,
+      "h": 7
+    },
+    "32": {
+      "x": 14,
+      "y": 69,
+      "w": 10,
+      "h": 7
+    },
+    "33": {
+      "x": 0,
+      "y": 76,
+      "w": 24,
+      "h": 1
+    },
+    "34": {
+      "x": 0,
+      "y": 77,
+      "w": 12,
+      "h": 6
+    },
+    "35": {
+      "x": 12,
+      "y": 77,
+      "w": 12,
+      "h": 6
+    },
+    "36": {
+      "x": 0,
+      "y": 83,
+      "w": 12,
+      "h": 8
+    },
+    "37": {
+      "x": 12,
+      "y": 83,
+      "w": 12,
+      "h": 8
+    },
+    "38": {
+      "x": 0,
+      "y": 91,
+      "w": 8,
+      "h": 8
+    },
+    "39": {
+      "x": 8,
+      "y": 91,
+      "w": 8,
+      "h": 8
+    },
+    "40": {
+      "x": 16,
+      "y": 91,
+      "w": 8,
+      "h": 8
+    },
+    "41": {
+      "x": 0,
+      "y": 99,
+      "w": 24,
+      "h": 1
+    },
+    "42": {
+      "x": 0,
+      "y": 100,
+      "w": 12,
+      "h": 7
+    },
+    "43": {
+      "x": 12,
+      "y": 100,
+      "w": 12,
+      "h": 7
+    },
+    "44": {
+      "x": 0,
+      "y": 107,
+      "w": 24,
+      "h": 1
+    },
+    "45": {
+      "x": 0,
+      "y": 108,
+      "w": 12,
+      "h": 6
+    },
+    "46": {
+      "x": 12,
+      "y": 108,
+      "w": 12,
+      "h": 6
+    },
+    "47": {
+      "x": 0,
+      "y": 114,
+      "w": 24,
+      "h": 8
+    },
+    "48": {
+      "x": 0,
+      "y": 122,
+      "w": 24,
+      "h": 8
+    },
+    "49": {
+      "x": 0,
+      "y": 130,
+      "w": 24,
+      "h": 7
+    },
+    "50": {
+      "x": 0,
+      "y": 137,
+      "w": 12,
+      "h": 8
+    },
+    "51": {
+      "x": 12,
+      "y": 137,
+      "w": 12,
+      "h": 8
+    },
+    "52": {
+      "x": 0,
+      "y": 145,
+      "w": 24,
+      "h": 1
+    },
+    "53": {
+      "x": 0,
+      "y": 146,
+      "w": 24,
+      "h": 8
+    },
+    "54": {
+      "x": 0,
+      "y": 154,
+      "w": 24,
+      "h": 10
+    },
+    "55": {
+      "x": 0,
+      "y": 164,
+      "w": 24,
+      "h": 1
+    },
+    "56": {
+      "x": 0,
+      "y": 165,
+      "w": 12,
+      "h": 7
+    },
+    "57": {
+      "x": 12,
+      "y": 165,
+      "w": 12,
+      "h": 7
+    },
+    "58": {
+      "x": 0,
+      "y": 172,
+      "w": 12,
+      "h": 7
+    },
+    "59": {
+      "x": 12,
+      "y": 172,
+      "w": 12,
+      "h": 7
+    }
+  },
+  "annotations": [],
+  "settings": {
+    "defaultTimeframe": {
+      "value": {
+        "from": "now()-2h",
+        "to": "now()"
+      },
+      "enabled": true
+    }
+  }
+}

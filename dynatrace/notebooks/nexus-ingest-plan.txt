@@ -40,7 +40,9 @@ LUNES 26/10 - ajustar y entregar
        B / M / C del tablero y la alerta de % respuestas M.
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
-   [ ] Con nexus-overview y nexus-detail validados: borrar del tenant el tablero Nexus y los tableros por
+   [x] Tablero dashboards/nexus-v2.json: KPIs, alertas por cluster, adaptadores, proxy, detalle de errores,
+       traza por rquid y salud del pipeline en uno solo. Importarlo.
+   [ ] Con nexus-v2 validado: borrar del tenant nexus-overview, nexus-detail, el tablero Nexus y los tableros por
        cluster, y del repo dynatrace/Nexus.json y build_cluster_dashboards.sh.
    [ ] Revisar el costo de ingesta y procesamiento con los días de datos que haya.
    [ ] Actualizar el notebook (columnas Hecho) y entregar.
