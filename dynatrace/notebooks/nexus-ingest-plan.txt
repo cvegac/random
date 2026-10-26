@@ -31,6 +31,9 @@ VIERNES 23/10 - tarde: validar y consumir
    [ ] Crear las 11 alertas (sección 9) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
 LUNES 26/10 - ajustar y entregar
+   [ ] mngr_error: correr la validación de la sección 10. Corregir el procesador 6 (rquid y canal) y el 7
+       (condición "*-mngr" con matchesValue, script con contains); sumar nexus.channel a la métrica
+       custom.nexus.log.mngr.errors. Repetir la validación con datos posteriores al cambio.
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
    [ ] Con nexus-overview y nexus-detail validados: borrar del tenant el tablero Nexus y los tableros por

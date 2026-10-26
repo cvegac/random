@@ -51,7 +51,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "## Nexus - Detalle (logs con atributos nexus.*)\nLee logs: usar rangos cortos. Las secciones 1 y 2 leen el bucket `nexus_errores` (chico); la 3 y la 4 leen también `logs_integracion`. Cluster: uno, varios o `*`. Canal solo existe en las líneas del adaptador: con un canal elegido no aparecen las filas del mngr. Rquid para la sección 4 (ignora los filtros)."
+      "content": "## Nexus - Detalle (logs con atributos nexus.*)\nLee logs: usar rangos cortos. Las secciones 1 y 2 leen el bucket `nexus_errores` (chico); la 3 y la 4 leen también `logs_integracion`. Cluster: uno, varios o `*`. Canal existe en las líneas del adaptador y en las trazas y errores del mngr, no en la respuesta SOAP: con un canal elegido no aparecen los rechazos. Rquid para la sección 4 (ignora los filtros)."
     },
     "1": {
       "type": "markdown",
@@ -173,7 +173,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES DEL MNGR POR MENSAJE",
-      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid), by: { nexus.cluster, nexus.service, pattern }\n| sort errors desc\n| limit 50",
+      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, pattern }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
     "9": {

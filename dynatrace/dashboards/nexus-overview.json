@@ -42,7 +42,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "## Nexus - General (métricas de ingesta)\nMétricas `custom.nexus.log.*` extraídas en OpenPipeline: cuestan lo mismo con cualquier rango y volumen, pero solo tienen datos desde que se creó cada una. Cluster: uno, varios o `*`. Servicio y Canal filtran respuestas, errores de mapeo y timeouts del adaptador; Servicio también errores y pasos del mngr. El detalle (rquid, ejemplos, mensajes) está en el tablero de detalle."
+      "content": "## Nexus - General (métricas de ingesta)\nMétricas `custom.nexus.log.*` extraídas en OpenPipeline: cuestan lo mismo con cualquier rango y volumen, pero solo tienen datos desde que se creó cada una. Cluster: uno, varios o `*`. Servicio y Canal filtran respuestas, errores de mapeo y timeouts del adaptador y errores del mngr; Servicio también los pasos del ESB. El detalle (rquid, ejemplos, mensajes) está en el tablero de detalle."
     },
     "1": {
       "type": "markdown",
@@ -433,7 +433,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "ERRORES DEL MNGR POR CLUSTER",
-      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| summarize errors = sum(e[]), by: { timeframe, interval, nexus.cluster }",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = sum(e[]), by: { timeframe, interval, nexus.cluster }",
       "visualizationSettings": {}
     },
     "23": {
@@ -489,8 +489,8 @@
       },
       "type": "data",
       "visualization": "table",
-      "title": "ERRORES DEL MNGR POR SERVICIO",
-      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| fieldsAdd errors = arraySum(e)\n| fields nexus.cluster, nexus.service, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
+      "title": "ERRORES DEL MNGR POR SERVICIO Y CANAL",
+      "query": "timeseries e = sum(custom.nexus.log.mngr.errors), by: { nexus.cluster, nexus.service, nexus.channel }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd errors = arraySum(e)\n| fields nexus.cluster, nexus.service, nexus.channel, errors\n| filter errors > 0\n| sort errors desc\n| limit 30",
       "visualizationSettings": {}
     },
     "26": {
