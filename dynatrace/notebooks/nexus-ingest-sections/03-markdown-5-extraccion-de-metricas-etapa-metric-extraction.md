@@ -13,7 +13,7 @@ por `cluster`, `outcome`, `service`...; en las consultas sobre logs, por `nexus.
 | [x] | `custom.nexus.log.adapter.backend_ms` | value (`nexus.duration_ms`) | `matchesValue(nexus.kind, "backend_time")` | cluster, component | LATENCIA ADAPTADOR |
 | [x] | `custom.nexus.log.adapter.backend_calls` | counter | `matchesValue(nexus.kind, "backend_time")` | cluster, component, latency_bucket | distribución de latencia (reemplazo del p95) |
 | [x] | `custom.nexus.log.mngr.errors` | counter | `matchesValue(nexus.kind, "mngr_error")` | cluster, service, channel | ERROR LOGS, errores por canal |
-| [x] | `custom.nexus.log.mngr.soap_responses` | counter | `matchesValue(nexus.kind, "soap_resp")` | cluster, acceptance, soap.operation, soap.msg_code | respuestas al canal B / M / C |
+| [ ] | `custom.nexus.log.mngr.soap_responses` | counter | `matchesValue(nexus.kind, "soap_resp")` | cluster, acceptance, soap.operation, soap.msg_code | respuestas al canal B / M / C |
 | [x] | `custom.nexus.log.mngr.consumer_mismatch` | counter | `matchesValue(nexus.kind, "consumer_mismatch")` | cluster | nuevo: WARN "Consumidor no coincide" |
 | [x] | `custom.nexus.log.adapter.stratus_late_replies` | counter | `matchesValue(nexus.kind, "stratus_late_reply")` | cluster, component | nuevo: respuestas tardías de Stratus |
 | [x] | `custom.nexus.log.adapter.stream_issues` | counter | `matchesValue(nexus.kind, "stream_*")` | cluster, component, kind, stream.attribute | nuevo: calidad de datos del backend |

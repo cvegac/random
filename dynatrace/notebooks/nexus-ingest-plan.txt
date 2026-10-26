@@ -34,6 +34,8 @@ LUNES 26/10 - ajustar y entregar
    [ ] mngr_error: correr la validación de la sección 10. Corregir el procesador 6 (rquid y canal) y el 7
        (condición "*-mngr" con matchesValue, script con contains); sumar nexus.channel a la métrica
        custom.nexus.log.mngr.errors. Repetir la validación con datos posteriores al cambio.
+   [ ] Crear la métrica custom.nexus.log.mngr.soap_responses (sección 5): sin ella quedan vacías las tiles
+       B / M / C del tablero y la alerta de % respuestas M.
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
    [ ] Con nexus-overview y nexus-detail validados: borrar del tenant el tablero Nexus y los tableros por
