@@ -1,0 +1,10 @@
+// truth = the old alert's definition: case-sensitive "[ERROR" in a ws mngr line
+fetch logs
+| filter in(dt.system.bucket, array("logs_integracion", "bck-nexus-error-log"))
+| filter startsWith(aws.log_group, "/aws/ecs/srv/") and endsWith(aws.log_group, "-mngr")
+| parse aws.log_group, "'/aws/ecs/srv/' LD:cluster 'ws-'"
+| fieldsAdd truth = contains(content, "[ERROR"), tagged = coalesce(nexus.kind, "") == "mngr_error"
+| summarize truth = countIf(truth), tagged = countIf(tagged),
+    missed = countIf(truth and not tagged), extra = countIf(tagged and not truth),
+    in_errors_bucket = countIf(truth and dt.system.bucket == "bck-nexus-error-log"), by: { cluster }
+| sort truth desc

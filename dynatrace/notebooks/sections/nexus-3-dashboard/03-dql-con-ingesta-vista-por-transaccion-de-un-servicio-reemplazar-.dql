@@ -1,0 +1,11 @@
+// one row per rquid: what the channel got, how long the ESB and the backend took
+// error lines go to bck-nexus-error-log, so a transaction is split across both buckets
+fetch logs
+| filter in(dt.system.bucket, array("logs_integracion", "bck-nexus-error-log")) and nexus.service == "PEGAR-SERVICIO" and isNotNull(nexus.rquid)
+| summarize channel = takeAny(nexus.channel),
+            http_code = max(if(nexus.kind == "audit_resp", nexus.http_code)),
+            esb_ms = sum(if(nexus.kind == "esb_step", nexus.duration_ms)),
+            backend_ms = max(if(nexus.kind == "backend_time", nexus.duration_ms)),
+            by: { nexus.rquid }
+| sort esb_ms desc
+| limit 200

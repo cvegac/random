@@ -1,0 +1,5 @@
+fetch logs
+| filter dt.system.bucket == "bck-nexus-error-log"
+| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }
+| sort errors desc
+| limit 50

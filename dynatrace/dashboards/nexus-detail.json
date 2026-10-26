@@ -51,7 +51,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "## Nexus - Detalle (logs con atributos nexus.*)\nLee logs: usar rangos cortos. Las secciones 1 y 2 leen el bucket `nexus_errores` (chico); la 3 y la 4 leen también `logs_integracion`. Cluster: uno, varios o `*`. Canal existe en las líneas del adaptador y en las trazas y errores del mngr, no en la respuesta SOAP: con un canal elegido no aparecen los rechazos. Rquid para la sección 4 (ignora los filtros)."
+      "content": "## Nexus - Detalle (logs con atributos nexus.*)\nLee logs: usar rangos cortos. Las secciones 1 y 2 leen el bucket `bck-nexus-error-log` (chico); la 3 y la 4 leen también `logs_integracion`. Cluster: uno, varios o `*`. Canal existe en las líneas del adaptador y en las trazas y errores del mngr, no en la respuesta SOAP: con un canal elegido no aparecen los rechazos. Rquid para la sección 4 (ignora los filtros)."
     },
     "1": {
       "type": "markdown",
@@ -73,7 +73,7 @@
       "type": "data",
       "visualization": "lineChart",
       "title": "ERRORES EN EL TIEMPO POR TIPO",
-      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
       "visualizationSettings": {}
     },
     "3": {
@@ -92,7 +92,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES POR CLUSTER, SERVICIO, CANAL Y TIPO",
-      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
     "4": {
@@ -111,7 +111,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES DE MAPEO CON EJEMPLO",
-      "query": "// the example is built at query time; 1= values may be customer data, so digits become 9\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50",
+      "query": "// the example is built at query time; 1= values may be customer data, so digits become 9\nfetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50",
       "visualizationSettings": {}
     },
     "5": {
@@ -130,7 +130,7 @@
       "type": "data",
       "visualization": "table",
       "title": "RQUIDS CON ERROR (respuesta del adaptador)",
-      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"audit_resp\" and nexus.outcome == \"error\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| fields timestamp, nexus.cluster, nexus.service, nexus.channel, nexus.rquid, nexus.http_code, error_system, error_message\n| sort timestamp desc\n| limit 200",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter nexus.kind == \"audit_resp\" and nexus.outcome == \"error\"\n| parse content, \"LD '\\\"system\\\":\\\"' LD:error_system '\\\"'\"\n| parse content, \"LD '\\\"message\\\":\\\"' LD:error_message '\\\"'\"\n| fields timestamp, nexus.cluster, nexus.service, nexus.channel, nexus.rquid, nexus.http_code, error_system, error_message\n| sort timestamp desc\n| limit 200",
       "visualizationSettings": {},
       "description": "Respuestas fuera de 2xx y 412"
     },
@@ -150,7 +150,7 @@
       "type": "data",
       "visualization": "table",
       "title": "TIMEOUTS 504 Y RESPUESTAS TARDÍAS DE STRATUS",
-      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter in(nexus.kind, array(\"timeout_504\", \"stratus_late_reply\"))\n| fields timestamp, nexus.kind, nexus.component, nexus.service, nexus.channel, nexus.rquid\n| sort timestamp desc\n| limit 200",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| filter in(nexus.kind, array(\"timeout_504\", \"stratus_late_reply\"))\n| fields timestamp, nexus.kind, nexus.component, nexus.service, nexus.channel, nexus.rquid\n| sort timestamp desc\n| limit 200",
       "visualizationSettings": {}
     },
     "7": {
@@ -173,7 +173,7 @@
       "type": "data",
       "visualization": "table",
       "title": "ERRORES DEL MNGR POR MENSAJE",
-      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, pattern }\n| sort errors desc\n| limit 50",
+      "query": "// digits become 9 so the variants of the same message group together\nfetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and nexus.kind == \"mngr_error\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| parse content, \"LD '[ERROR' LD ']' SPACE? LD:message\"\n| fieldsAdd pattern = substring(replacePattern(message, \"DIGIT\", \"9\"), from: 0, to: 120)\n| summarize errors = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.service, nexus.channel, pattern }\n| sort errors desc\n| limit 50",
       "visualizationSettings": {}
     },
     "9": {
@@ -192,7 +192,7 @@
       "type": "data",
       "visualization": "table",
       "title": "RECHAZOS AL CANAL (M)",
-      "query": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.acceptance == \"M\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize rejections = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.soap.operation, nexus.soap.msg_code }\n| sort rejections desc\n| limit 50",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and nexus.acceptance == \"M\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster))\n| summarize rejections = count(), rquid = takeFirst(nexus.rquid),\n    by: { nexus.cluster, nexus.soap.operation, nexus.soap.msg_code }\n| sort rejections desc\n| limit 50",
       "visualizationSettings": {},
       "description": "El canal no viaja en la respuesta SOAP"
     },
@@ -216,7 +216,7 @@
       "type": "data",
       "visualization": "table",
       "title": "VISTA POR TRANSACCIÓN",
-      "query": "// one row per rquid: what the channel got, how long the ESB and the backend took\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter isNotNull(nexus.rquid) and (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.cluster, nexus.service, nexus.rquid }\n| filter in(\"*\", $Canal) or in(channel, $Canal)\n| sort esb_ms desc\n| limit 200",
+      "query": "// one row per rquid: what the channel got, how long the ESB and the backend took\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\"))\n| filter isNotNull(nexus.rquid) and (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.cluster, nexus.service, nexus.rquid }\n| filter in(\"*\", $Canal) or in(channel, $Canal)\n| sort esb_ms desc\n| limit 200",
       "visualizationSettings": {},
       "description": "Elegir un servicio y un rango corto"
     },
@@ -240,7 +240,7 @@
       "type": "data",
       "visualization": "table",
       "title": "TRAZA RQUID",
-      "query": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter nexus.rquid == $Rquid or contains(content, $Rquid)\n| fields timestamp, nexus.component, nexus.kind, nexus.duration_ms, content\n| sort timestamp asc\n| limit 1000",
+      "query": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\"))\n| filter nexus.rquid == $Rquid or contains(content, $Rquid)\n| fields timestamp, nexus.component, nexus.kind, nexus.duration_ms, content\n| sort timestamp asc\n| limit 1000",
       "visualizationSettings": {}
     }
   },

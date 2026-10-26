@@ -1,0 +1,12 @@
+CAMBIOS AL NOTEBOOK nexus-3-dashboard EN EL TENANT (26/10): el bucket de errores se llama bck-nexus-error-log
+
+Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
+Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
+
+REEMPLAZAR
+01  [ ]  DQL con título: Con ingesta: errores de todos los clusters (bucket de errores)
+    archivo: 01-dql-con-ingesta-errores-de-todos-los-clusters-bucket-de-errores.dql
+02  [ ]  DQL con título: Con ingesta: errores de mapeo con ejemplo
+    archivo: 02-dql-con-ingesta-errores-de-mapeo-con-ejemplo.dql
+03  [ ]  DQL con título: Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)
+    archivo: 03-dql-con-ingesta-vista-por-transaccion-de-un-servicio-reemplazar-.dql

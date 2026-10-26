@@ -1,0 +1,13 @@
+// the example is built at query time from the raw line, over the small errors bucket only
+fetch logs
+| filter dt.system.bucket == "bck-nexus-error-log" and nexus.kind == "mapping_error"
+| parse content, "LD '. 1=' LD:params SPACE? '::HEAD::'"
+| fieldsAdd args = splitString(params, ", ")
+| fieldsAdd p1_shape = substring(replacePattern(args[0], "DIGIT", "9"), from: 0, to: 20),
+            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)
+| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, "%1", coalesce(p1_shape, "%1")),
+                      "%2", coalesce(p2, "%2")), "%3", coalesce(p3, "%3"))
+| summarize total = count(), example = takeFirst(example),
+    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }
+| sort total desc
+| limit 50

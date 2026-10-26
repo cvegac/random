@@ -1023,7 +1023,7 @@
     {
       "type": "markdown",
       "id": "004df60a-63ce-4dce-9210-62afb3fa38ae",
-      "markdown": "## Buckets (etapa Storage)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [x] | `nexus_errores` | `matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\")` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"nexus_errores\"` y dejan de escanear el tráfico sano."
+      "markdown": "## Buckets (etapa Storage)\n\n| Hecho | Bucket | Condición | Retención sugerida | Para qué |\n|---|---|---|---|---|\n| [x] | `bck-nexus-error-log` | `matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\")` | larga (ej. 90 días) | detalle de errores: chico, barato de consultar con rangos largos |\n| [x] | `logs_integracion` | el resto | la actual (ya existe) | traza por rquid y diagnóstico puntual, siempre con rango corto |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente. Los buckets se crean antes en Settings > Storage management. Las queries de errores pasan a filtrar\n`dt.system.bucket == \"bck-nexus-error-log\"` y dejan de escanear el tráfico sano."
     },
     {
       "type": "dql",
@@ -1035,7 +1035,7 @@
             "from": "now()-15m",
             "to": "now()"
           },
-          "value": "// expected: nexus_errores only with should_be_error = true, logs_integracion only with false\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\")) and isNotNull(nexus.cluster)\n| fieldsAdd should_be_error = coalesce(matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\"), false)\n| summarize lines = count(), by: { dt.system.bucket, should_be_error }"
+          "value": "// expected: bck-nexus-error-log only with should_be_error = true, logs_integracion only with false\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\")) and isNotNull(nexus.cluster)\n| fieldsAdd should_be_error = coalesce(matchesValue(nexus.kind, \"mapping_error\") or matchesValue(nexus.kind, \"timeout_504\") or matchesValue(nexus.kind, \"technical_error\") or matchesValue(nexus.kind, \"mngr_error\") or matchesValue(nexus.kind, \"stratus_late_reply\") or matchesValue(nexus.kind, \"stream_*\") or matchesValue(nexus.outcome, \"error\") or matchesValue(nexus.acceptance, \"M\"), false)\n| summarize lines = count(), by: { dt.system.bucket, should_be_error }"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -1144,7 +1144,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "// truth = the old alert's definition: case-sensitive \"[ERROR\" in a ws mngr line\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| fieldsAdd truth = contains(content, \"[ERROR\"), tagged = coalesce(nexus.kind, \"\") == \"mngr_error\"\n| summarize truth = countIf(truth), tagged = countIf(tagged),\n    missed = countIf(truth and not tagged), extra = countIf(tagged and not truth),\n    in_errors_bucket = countIf(truth and dt.system.bucket == \"nexus_errores\"), by: { cluster }\n| sort truth desc"
+          "value": "// truth = the old alert's definition: case-sensitive \"[ERROR\" in a ws mngr line\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| parse aws.log_group, \"'/aws/ecs/srv/' LD:cluster 'ws-'\"\n| fieldsAdd truth = contains(content, \"[ERROR\"), tagged = coalesce(nexus.kind, \"\") == \"mngr_error\"\n| summarize truth = countIf(truth), tagged = countIf(tagged),\n    missed = countIf(truth and not tagged), extra = countIf(tagged and not truth),\n    in_errors_bucket = countIf(truth and dt.system.bucket == \"bck-nexus-error-log\"), by: { cluster }\n| sort truth desc"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -1177,7 +1177,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\") and coalesce(nexus.kind, \"\") != \"mngr_error\"\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt.system.bucket, nexus.kind, loglevel, has_cluster = isNotNull(nexus.cluster) }\n| sort lines desc"
+          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter contains(content, \"[ERROR\") and coalesce(nexus.kind, \"\") != \"mngr_error\"\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt.system.bucket, nexus.kind, loglevel, has_cluster = isNotNull(nexus.cluster) }\n| sort lines desc"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -1210,7 +1210,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter coalesce(nexus.kind, \"\") == \"mngr_error\" and not contains(content, \"[ERROR\")\n| fieldsAdd marker_any_case = contains(content, \"[ERROR\", caseSensitive: false)\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { loglevel, marker_any_case }\n| sort lines desc"
+          "value": "fetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\"))\n| filter startsWith(aws.log_group, \"/aws/ecs/srv/\") and endsWith(aws.log_group, \"-mngr\")\n| filter coalesce(nexus.kind, \"\") == \"mngr_error\" and not contains(content, \"[ERROR\")\n| fieldsAdd marker_any_case = contains(content, \"[ERROR\", caseSensitive: false)\n| summarize lines = count(), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { loglevel, marker_any_case }\n| sort lines desc"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -1243,7 +1243,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| summarize logs = count(), by: { nexus.cluster }\n| lookup [\n    timeseries m = sum(custom.nexus.log.mngr.errors), by: { cluster }\n    | fieldsAdd metric = arraySum(m)\n  ], sourceField: nexus.cluster, lookupField: cluster, fields: { metric }\n| fieldsAdd diff_pct = round(100.0 * (coalesce(metric, 0) - logs) / logs, decimals: 1)\n| sort diff_pct asc"
+          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and nexus.kind == \"mngr_error\"\n| summarize logs = count(), by: { nexus.cluster }\n| lookup [\n    timeseries m = sum(custom.nexus.log.mngr.errors), by: { cluster }\n    | fieldsAdd metric = arraySum(m)\n  ], sourceField: nexus.cluster, lookupField: cluster, fields: { metric }\n| fieldsAdd diff_pct = round(100.0 * (coalesce(metric, 0) - logs) / logs, decimals: 1)\n| sort diff_pct asc"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -1276,7 +1276,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mngr_error\"\n| fieldsAdd dt_prefix = contains(content, \"[!dt \")\n| summarize lines = count(), no_rquid = countIf(isNull(nexus.rquid)), no_service = countIf(isNull(nexus.service)),\n    no_channel = countIf(isNull(nexus.channel)), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt_prefix }"
+          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and nexus.kind == \"mngr_error\"\n| fieldsAdd dt_prefix = contains(content, \"[!dt \")\n| summarize lines = count(), no_rquid = countIf(isNull(nexus.rquid)), no_service = countIf(isNull(nexus.service)),\n    no_channel = countIf(isNull(nexus.channel)), example = takeFirst(substring(content, from: 0, to: 200)),\n    by: { dt_prefix }"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,

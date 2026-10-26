@@ -564,7 +564,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter dt.system.bucket == \"nexus_errores\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
+          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -597,7 +597,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "// the example is built at query time from the raw line, over the small errors bucket only\nfetch logs\n| filter dt.system.bucket == \"nexus_errores\" and nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50"
+          "value": "// the example is built at query time from the raw line, over the small errors bucket only\nfetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and nexus.kind == \"mapping_error\"\n| parse content, \"LD '. 1=' LD:params SPACE? '::HEAD::'\"\n| fieldsAdd args = splitString(params, \", \")\n| fieldsAdd p1_shape = substring(replacePattern(args[0], \"DIGIT\", \"9\"), from: 0, to: 20),\n            p2 = substring(args[1], from: 2), p3 = substring(args[2], from: 2)\n| fieldsAdd example = replaceString(replaceString(replaceString(nexus.mapping.rule, \"%1\", coalesce(p1_shape, \"%1\")),\n                      \"%2\", coalesce(p2, \"%2\")), \"%3\", coalesce(p3, \"%3\"))\n| summarize total = count(), example = takeFirst(example),\n    by: { nexus.cluster, nexus.service, nexus.channel, nexus.mapping.direction, nexus.mapping.field, nexus.mapping.rule }\n| sort total desc\n| limit 50"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
@@ -630,7 +630,7 @@
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "// one row per rquid: what the channel got, how long the ESB and the backend took\n// error lines go to nexus_errores, so a transaction is split across both buckets\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"nexus_errores\")) and nexus.service == \"PEGAR-SERVICIO\" and isNotNull(nexus.rquid)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.rquid }\n| sort esb_ms desc\n| limit 200"
+          "value": "// one row per rquid: what the channel got, how long the ESB and the backend took\n// error lines go to bck-nexus-error-log, so a transaction is split across both buckets\nfetch logs\n| filter in(dt.system.bucket, array(\"logs_integracion\", \"bck-nexus-error-log\")) and nexus.service == \"PEGAR-SERVICIO\" and isNotNull(nexus.rquid)\n| summarize channel = takeAny(nexus.channel),\n            http_code = max(if(nexus.kind == \"audit_resp\", nexus.http_code)),\n            esb_ms = sum(if(nexus.kind == \"esb_step\", nexus.duration_ms)),\n            backend_ms = max(if(nexus.kind == \"backend_time\", nexus.duration_ms)),\n            by: { nexus.rquid }\n| sort esb_ms desc\n| limit 200"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,

@@ -7,7 +7,7 @@ OpenPipeline o en Anomaly Detection: es trabajo de minutos, no de días.
 Estado: [ ] pendiente   [x] hecho
 
 HECHO                                                       22/10
-   [x] Bucket nexus_errores (notebook Pipeline).
+   [x] Bucket bck-nexus-error-log (notebook Pipeline).
    [x] Ruta del pipeline nexus y procesadores 1 a 8 (notebook Pipeline).
    [x] Métrica custom.nexus.log.adapter.timeouts (notebook Pipeline).
 
@@ -24,9 +24,9 @@ VIERNES 23/10 - mañana: configurar
 VIERNES 23/10 - tarde: validar y consumir
    [ ] Validar cada métrica contra los logs en la ventana desde que se creó (notebook Pipeline); marcar Hecho en Métricas.
    [ ] Validar timeouts igual, con la ventana del 22/10 en adelante.
-   [ ] Verificar la regla de Storage del bucket nexus_errores y que la ruta cubre todos los clusters.
+   [ ] Verificar la regla de Storage del bucket bck-nexus-error-log y que la ruta cubre todos los clusters.
    [x] Tableros nuevos: dashboards/nexus-overview.json (métricas) y dashboards/nexus-detail.json
-       (logs con atributos nexus.* y bucket nexus_errores).
+       (logs con atributos nexus.* y bucket bck-nexus-error-log).
    [ ] Importar los dos tableros y revisar cada tile.
    [ ] Crear las 11 alertas (notebook Alertas) y el Workflow de notificaciones. Las alertas viejas quedan prendidas.
 
