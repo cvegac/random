@@ -42,6 +42,11 @@ LUNES 26/10 - ajustar y entregar
        B / M / C del tablero y la alerta de % respuestas M.
    [ ] Comparar lo que dispararon las alertas nuevas y las viejas durante el fin de semana y ajustar umbrales.
    [ ] Apagar las alertas viejas que leen logs.
+   [x] 27/10, temporal por ruido de madrugada: alerta 7 con corte en 5 s (antes 1 s) y alerta de errores del mngr
+       apagada hasta que el umbral adaptativo tenga historia.
+   [ ] Partir el tramo 1-5s del procesador 5 en 1-3s y 3-5s y llevar la alerta 7 a 3 s sostenidos (timeout del
+       canal 5 s). Definir los umbrales con el equipo y evaluar separar las alertas por canal.
+   [ ] Reactivar la alerta de errores del mngr cuando tenga historia suficiente.
    [x] Tablero dashboards/nexus-v2.json: KPIs, alertas por cluster, adaptadores, proxy, detalle de errores,
        traza por rquid y salud del pipeline en uno solo. Importarlo.
    [ ] Con nexus-v2 validado: borrar del tenant nexus-overview, nexus-detail, el tablero Nexus y los tableros por

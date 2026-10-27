@@ -1,0 +1,13 @@
+timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m
+| join [
+    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },
+        filter: latency_bucket == "5s+", interval: 1m
+  ], on: { cluster }, fields: { slow }
+| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)
+| fieldsKeep timeframe, interval, cluster, slow_pct
+| fieldsAdd above = if(slow_pct[] > 5, 1, else: 0)
+| fieldsAdd win5 = arrayMovingSum(above, 5)
+| fieldsAdd firing = if(win5[] >= 3, 1, else: 0)
+| fieldsAdd max_value = arrayMax(slow_pct), minutes_above = arraySum(above), minutes_firing = arraySum(firing)
+| fields cluster, max_value, minutes_above, minutes_firing
+| sort minutes_firing desc, minutes_above desc

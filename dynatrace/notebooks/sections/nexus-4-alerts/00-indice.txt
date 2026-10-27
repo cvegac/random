@@ -1,7 +1,7 @@
 CAMBIOS AL NOTEBOOK nexus-4-alerts EN EL TENANT
 
 Todo lo que cambió desde que se importó el notebook. Si ya pegaste el paquete anterior, alcanza con las
-marcadas NUEVO (26/10: sin soap_resp en el detalle de errores ni en la regla del bucket).
+marcadas NUEVO (27/10: alerta 7 con corte en 5 s, temporal).
 
 Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
 Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
@@ -9,3 +9,11 @@ Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el
 REEMPLAZAR
 01  [ ]         markdown que empieza con: ### 5. % respuestas M al canal
     archivo: 01-markdown-5-respuestas-m-al-canal.md
+02  [ ]  NUEVO  markdown que empieza con: # Nexus · 4. Alertas
+    archivo: 02-markdown-nexus-4-alertas.md
+03  [ ]  NUEVO  markdown que empieza con: ### 7. % llamadas al backend de más de 1 s
+    archivo: 03-markdown-7-llamadas-al-backend-de-mas-de-5-s.md
+04  [ ]  NUEVO  DQL con título: Alerta 7: % llamadas al backend de más de 5 s (antes: de más de 1 s)
+    archivo: 04-dql-alerta-7-llamadas-al-backend-de-mas-de-5-s.dql
+05  [ ]  NUEVO  DQL con título: Alerta 7: ¿habría alertado? (umbral 5)
+    archivo: 05-dql-alerta-7-habria-alertado-umbral-5.dql

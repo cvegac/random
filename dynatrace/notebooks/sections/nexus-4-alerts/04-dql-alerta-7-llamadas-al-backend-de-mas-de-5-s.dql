@@ -1,0 +1,7 @@
+timeseries total = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster }, interval: 1m
+| join [
+    timeseries slow = sum(custom.nexus.log.adapter.backend_calls, default: 0), by: { cluster },
+        filter: latency_bucket == "5s+", interval: 1m
+  ], on: { cluster }, fields: { slow }
+| fieldsAdd slow_pct = if(total[] > 10, 100.0 * slow[] / total[], else: 0.0)
+| fieldsKeep timeframe, interval, cluster, slow_pct
