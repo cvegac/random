@@ -1,5 +1,0 @@
-fetch logs
-| filter dt.system.bucket == "bck-nexus-error-log" and coalesce(nexus.kind, "") != "soap_resp"
-| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }
-| sort errors desc
-| limit 50

@@ -1,0 +1,18 @@
+// a failed adapter call logs its error response (audit_resp) AND the line of its cause, so counting lines
+// by kind counts it twice; this counts each transaction (rquid) once, with its cause
+fetch logs
+| filter dt.system.bucket == "bck-nexus-error-log"
+| filter (nexus.kind == "audit_resp" and nexus.outcome == "error")
+    or in(nexus.kind, array("timeout_504", "mapping_error", "technical_error"))
+| fieldsAdd trx = coalesce(nexus.rquid, concat("no-rquid-", toString(timestamp)))
+| summarize nexus.cluster = takeAny(nexus.cluster), nexus.service = takeAny(nexus.service),
+    nexus.channel = takeAny(nexus.channel),
+    timeout_lines = countIf(nexus.kind == "timeout_504"), mapping_lines = countIf(nexus.kind == "mapping_error"),
+    technical_lines = countIf(nexus.kind == "technical_error"), by: { trx }
+| fieldsAdd cause = if(timeout_lines > 0, "timeout_504", else: if(mapping_lines > 0, "mapping_error",
+    else: if(technical_lines > 0, "technical_error", else: "no_cause_logged")))
+| summarize failed = count(), timeouts = countIf(cause == "timeout_504"), mapping = countIf(cause == "mapping_error"),
+    technical = countIf(cause == "technical_error"), no_cause = countIf(cause == "no_cause_logged"),
+    by: { nexus.cluster, nexus.service, nexus.channel }
+| sort failed desc
+| limit 50

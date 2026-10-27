@@ -1,14 +1,14 @@
 CAMBIOS AL NOTEBOOK nexus-3-dashboard EN EL TENANT
 
 Todo lo que cambió desde que se importó el notebook. Si ya pegaste el paquete anterior, alcanza con las
-marcadas NUEVO (26/10: sin soap_resp en el detalle de errores ni en la regla del bucket).
+marcadas NUEVO (27/10: los errores se cuentan por transacción, sin duplicar la respuesta y su causa).
 
 Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.
 Markdown: editar la sección y reemplazar el texto. DQL: reemplazar la query; el título va abajo.
 
 REEMPLAZAR
-01  [ ]  NUEVO  DQL con título: Con ingesta: errores de todos los clusters (bucket de errores)
-    archivo: 01-dql-con-ingesta-errores-de-todos-los-clusters-bucket-de-errores.dql
+01  [ ]  NUEVO  DQL con título: Con ingesta: transacciones con error por causa (bucket de errores)
+    archivo: 01-dql-con-ingesta-transacciones-con-error-por-causa-bucket-de-errores.dql
 02  [ ]         DQL con título: Con ingesta: errores de mapeo con ejemplo
     archivo: 02-dql-con-ingesta-errores-de-mapeo-con-ejemplo.dql
 03  [ ]         DQL con título: Con ingesta: vista por transacción de un servicio (reemplazar PEGAR-SERVICIO)

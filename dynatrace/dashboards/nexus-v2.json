@@ -967,8 +967,8 @@
       },
       "type": "data",
       "visualization": "barChart",
-      "title": "ERRORES EN EL TIEMPO POR TIPO",
-      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and coalesce(nexus.kind, \"\") != \"soap_resp\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| makeTimeseries errors = count(), by: { nexus.kind }",
+      "title": "TRANSACCIONES CON ERROR EN EL TIEMPO, POR CAUSA",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (nexus.kind == \"audit_resp\" and nexus.outcome == \"error\")\n    or in(nexus.kind, array(\"timeout_504\", \"mapping_error\", \"technical_error\"))\n// lines without rquid count as one transaction each\n| fieldsAdd trx = coalesce(nexus.rquid, concat(\"no-rquid-\", toString(timestamp)))\n| summarize started = min(timestamp), nexus.cluster = takeAny(nexus.cluster),\n    nexus.service = takeAny(nexus.service), nexus.channel = takeAny(nexus.channel),\n    timeout_lines = countIf(nexus.kind == \"timeout_504\"), mapping_lines = countIf(nexus.kind == \"mapping_error\"),\n    technical_lines = countIf(nexus.kind == \"technical_error\"), by: { trx }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd cause = if(timeout_lines > 0, \"Timeout 504\", else: if(mapping_lines > 0, \"Error de mapeo\",\n    else: if(technical_lines > 0, \"Error técnico\", else: \"Sin causa en el log\")))\n| makeTimeseries failed = count(), by: { cause }, time: started",
       "visualizationSettings": {}
     },
     "52": {
@@ -986,8 +986,8 @@
       },
       "type": "data",
       "visualization": "donutChart",
-      "title": "ERRORES POR TIPO",
-      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and coalesce(nexus.kind, \"\") != \"soap_resp\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.kind }\n| fields kind = nexus.kind, errors\n| sort errors desc\n| fieldsRename `Tipo` = kind, `Errores` = errors",
+      "title": "TRANSACCIONES CON ERROR POR CAUSA",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (nexus.kind == \"audit_resp\" and nexus.outcome == \"error\")\n    or in(nexus.kind, array(\"timeout_504\", \"mapping_error\", \"technical_error\"))\n// lines without rquid count as one transaction each\n| fieldsAdd trx = coalesce(nexus.rquid, concat(\"no-rquid-\", toString(timestamp)))\n| summarize started = min(timestamp), nexus.cluster = takeAny(nexus.cluster),\n    nexus.service = takeAny(nexus.service), nexus.channel = takeAny(nexus.channel),\n    timeout_lines = countIf(nexus.kind == \"timeout_504\"), mapping_lines = countIf(nexus.kind == \"mapping_error\"),\n    technical_lines = countIf(nexus.kind == \"technical_error\"), by: { trx }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd cause = if(timeout_lines > 0, \"Timeout 504\", else: if(mapping_lines > 0, \"Error de mapeo\",\n    else: if(technical_lines > 0, \"Error técnico\", else: \"Sin causa en el log\")))\n| summarize failed = count(), by: { cause }\n| sort failed desc\n| fieldsRename `Transacciones con error` = failed, `Causa` = cause",
       "visualizationSettings": {}
     },
     "53": {
@@ -1005,9 +1005,10 @@
       },
       "type": "data",
       "visualization": "table",
-      "title": "ERRORES POR CLUSTER, SERVICIO, CANAL Y TIPO",
-      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and coalesce(nexus.kind, \"\") != \"soap_resp\"\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50\n| fieldsRename `Errores` = errors, `Cluster` = nexus.cluster, `Servicio` = nexus.service, `Canal` = nexus.channel, `Tipo` = nexus.kind",
-      "visualizationSettings": {}
+      "title": "TRANSACCIONES CON ERROR POR CLUSTER, SERVICIO Y CANAL",
+      "query": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (nexus.kind == \"audit_resp\" and nexus.outcome == \"error\")\n    or in(nexus.kind, array(\"timeout_504\", \"mapping_error\", \"technical_error\"))\n// lines without rquid count as one transaction each\n| fieldsAdd trx = coalesce(nexus.rquid, concat(\"no-rquid-\", toString(timestamp)))\n| summarize started = min(timestamp), nexus.cluster = takeAny(nexus.cluster),\n    nexus.service = takeAny(nexus.service), nexus.channel = takeAny(nexus.channel),\n    timeout_lines = countIf(nexus.kind == \"timeout_504\"), mapping_lines = countIf(nexus.kind == \"mapping_error\"),\n    technical_lines = countIf(nexus.kind == \"technical_error\"), by: { trx }\n| filter (in(\"*\", $Cluster) or in(nexus.cluster, $Cluster)) and ($Servicio == \"*\" or nexus.service == $Servicio) and (in(\"*\", $Canal) or in(nexus.channel, $Canal))\n| fieldsAdd cause = if(timeout_lines > 0, \"Timeout 504\", else: if(mapping_lines > 0, \"Error de mapeo\",\n    else: if(technical_lines > 0, \"Error técnico\", else: \"Sin causa en el log\")))\n| summarize failed = count(), timeouts = countIf(cause == \"Timeout 504\"),\n    mapping = countIf(cause == \"Error de mapeo\"), technical = countIf(cause == \"Error técnico\"),\n    no_cause = countIf(cause == \"Sin causa en el log\"),\n    by: { nexus.cluster, nexus.service, nexus.channel }\n| sort failed desc\n| limit 50\n| fieldsRename `Transacciones con error` = failed, `Timeouts 504` = timeouts, `Error de mapeo` = mapping, `Error técnico` = technical, `Sin causa en el log` = no_cause, `Cluster` = nexus.cluster, `Servicio` = nexus.service, `Canal` = nexus.channel",
+      "visualizationSettings": {},
+      "description": "Cada transacción cuenta una vez, con su causa"
     },
     "54": {
       "davis": {

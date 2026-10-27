@@ -557,14 +557,14 @@
     {
       "type": "dql",
       "id": "7f7f7380-22cc-4a12-9dce-e2ee09a75d12",
-      "title": "Con ingesta: errores de todos los clusters (bucket de errores)",
+      "title": "Con ingesta: transacciones con error por causa (bucket de errores)",
       "state": {
         "input": {
           "timeframe": {
             "from": "now()-2h",
             "to": "now()"
           },
-          "value": "fetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\" and coalesce(nexus.kind, \"\") != \"soap_resp\"\n| summarize errors = count(), by: { nexus.cluster, nexus.service, nexus.channel, nexus.kind }\n| sort errors desc\n| limit 50"
+          "value": "// a failed adapter call logs its error response (audit_resp) AND the line of its cause, so counting lines\n// by kind counts it twice; this counts each transaction (rquid) once, with its cause\nfetch logs\n| filter dt.system.bucket == \"bck-nexus-error-log\"\n| filter (nexus.kind == \"audit_resp\" and nexus.outcome == \"error\")\n    or in(nexus.kind, array(\"timeout_504\", \"mapping_error\", \"technical_error\"))\n| fieldsAdd trx = coalesce(nexus.rquid, concat(\"no-rquid-\", toString(timestamp)))\n| summarize nexus.cluster = takeAny(nexus.cluster), nexus.service = takeAny(nexus.service),\n    nexus.channel = takeAny(nexus.channel),\n    timeout_lines = countIf(nexus.kind == \"timeout_504\"), mapping_lines = countIf(nexus.kind == \"mapping_error\"),\n    technical_lines = countIf(nexus.kind == \"technical_error\"), by: { trx }\n| fieldsAdd cause = if(timeout_lines > 0, \"timeout_504\", else: if(mapping_lines > 0, \"mapping_error\",\n    else: if(technical_lines > 0, \"technical_error\", else: \"no_cause_logged\")))\n| summarize failed = count(), timeouts = countIf(cause == \"timeout_504\"), mapping = countIf(cause == \"mapping_error\"),\n    technical = countIf(cause == \"technical_error\"), no_cause = countIf(cause == \"no_cause_logged\"),\n    by: { nexus.cluster, nexus.service, nexus.channel }\n| sort failed desc\n| limit 50"
         },
         "visualizationSettings": {
           "autoSelectVisualization": true,
