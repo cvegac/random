@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9AA5B1"/></marker></defs>
+<rect width="1600" height="900" fill="#FFFFFF"/>
+<text x="60" y="66" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#1F2933" text-anchor="start">Processing: one DQL processor per line type</text>
+<text x="60" y="100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">Each processor has a matching condition and a script that adds nexus.* attributes. They run in order,</text>
+<text x="60" y="124" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">so a later processor can overwrite nexus.kind.</text>
+<text x="60" y="164" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="start">#</text>
+<text x="100" y="164" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="start">Source</text>
+<text x="200" y="164" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="start">Line type</text>
+<text x="510" y="164" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="start">Matches lines with</text>
+<text x="900" y="164" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="start">Adds (without the nexus. prefix)</text>
+<rect x="40" y="178" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="208.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">0</text>
+<rect x="100" y="189.5" width="80" height="26" rx="13" fill="#F2F4F6" stroke="#52606D" stroke-width="1.5"/>
+<text x="140" y="207.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#52606D" text-anchor="middle">both</text>
+<text x="200" y="208.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Log level</text>
+<text x="510" y="208.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#52606D" text-anchor="start">every routed line</text>
+<text x="900" y="207.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">loglevel (ERROR, WARN, INFO...)</text>
+<text x="60" y="257.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">1</text>
+<rect x="100" y="238.5" width="80" height="26" rx="13" fill="#F2F4F6" stroke="#52606D" stroke-width="1.5"/>
+<text x="140" y="256.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#52606D" text-anchor="middle">both</text>
+<text x="200" y="257.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Common context</text>
+<text x="510" y="257.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#52606D" text-anchor="start">every routed line</text>
+<text x="900" y="256.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">cluster, layer (adapter | mngr), component</text>
+<rect x="40" y="276" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="306.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">2</text>
+<rect x="100" y="287.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="305.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="306.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Request headers</text>
+<text x="510" y="306.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">::HEAD::[</text>
+<text x="900" y="305.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">rquid, channel (X-Name), service (X-Referer)</text>
+<text x="60" y="355.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">3</text>
+<rect x="100" y="336.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="354.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="355.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Adapter response</text>
+<text x="510" y="355.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">::AUDIT::RESP::</text>
+<text x="900" y="345.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = audit_resp, http_code,</text>
+<text x="900" y="364.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">outcome = ok_2xx | business_412 | error | unknown</text>
+<rect x="40" y="374" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="404.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">4</text>
+<rect x="100" y="385.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="403.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="404.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Exceptions</text>
+<text x="510" y="404.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">GenericExceptionMapper + HttpCode::</text>
+<text x="900" y="394.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = timeout_504 | mapping_error | technical_error,</text>
+<text x="900" y="413.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">http_code, mapping.direction, mapping.rule, mapping.field</text>
+<text x="60" y="453.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">5</text>
+<rect x="100" y="434.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="452.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="453.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Backend time</text>
+<text x="510" y="453.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">RSIN</text>
+<text x="900" y="443.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = backend_time, duration_ms,</text>
+<text x="900" y="462.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">latency_bucket (0-100ms, 100-500ms, 500ms-1s, 1-5s, 5s+)</text>
+<rect x="40" y="472" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="502.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">6</text>
+<rect x="100" y="483.5" width="80" height="26" rx="13" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="140" y="501.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="200" y="502.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">ESB trace and steps</text>
+<text x="510" y="502.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">[/</text>
+<text x="900" y="492.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = esb_step | mngr_trace, esb.step, duration_ms,</text>
+<text x="900" y="511.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">rquid, channel, service</text>
+<text x="60" y="551.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">7</text>
+<rect x="100" y="532.5" width="80" height="26" rx="13" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="140" y="550.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="200" y="551.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">mngr errors</text>
+<text x="510" y="551.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">[ERROR</text>
+<text x="900" y="550.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = mngr_error</text>
+<rect x="40" y="570" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="600.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">8</text>
+<rect x="100" y="581.5" width="80" height="26" rx="13" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="140" y="599.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="200" y="600.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">SOAP answer to the channel</text>
+<text x="510" y="600.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">&lt;caracterAceptacion&gt;</text>
+<text x="900" y="590.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = soap_resp, acceptance (B | M | C),</text>
+<text x="900" y="609.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">soap.operation, soap.msg_code</text>
+<text x="60" y="649.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">9</text>
+<rect x="100" y="630.5" width="80" height="26" rx="13" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="140" y="648.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="200" y="649.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Consumer mismatch (WARN)</text>
+<text x="510" y="649.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">Consumidor no coincide con...</text>
+<text x="900" y="648.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = consumer_mismatch</text>
+<rect x="40" y="668" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="698.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">10</text>
+<rect x="100" y="679.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="697.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="698.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Stratus reply after timeout</text>
+<text x="510" y="698.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">despues de timeout</text>
+<text x="900" y="697.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = stratus_late_reply</text>
+<text x="60" y="747.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">11</text>
+<rect x="100" y="728.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="746.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="747.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Incomplete backend data</text>
+<text x="510" y="747.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">[STREAM]</text>
+<text x="900" y="737.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = stream_incomplete_list | stream_null_chars |</text>
+<text x="900" y="756.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">stream_other, stream.attribute</text>
+<rect x="40" y="766" width="1520" height="49" fill="#F7F8FA"/>
+<text x="60" y="796.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">12</text>
+<rect x="100" y="777.5" width="80" height="26" rx="13" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="140" y="795.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="200" y="796.5" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Shutdown noise</text>
+<text x="510" y="796.5" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">[Error Occurred After Shutdown]</text>
+<text x="900" y="795.5" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">kind = shutdown_noise (kept, left out of the counts)</text>
+<text x="60" y="845" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#52606D" text-anchor="start">Conditions use matchesValue: case-insensitive, with * as a wildcard. The literal texts are the ones the services write in their logs.</text>
+<text x="60" y="869" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#52606D" text-anchor="start">Planned at the end of the stage: drop the OneAgent info lines ([native], [cstats]) and mask X-CustIdentNum in the adapter headers.</text>
+</svg>

@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9AA5B1"/></marker></defs>
+<rect width="1600" height="900" fill="#FFFFFF"/>
+<text x="60" y="66" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#1F2933" text-anchor="start">Metric extraction: 12 metrics computed at ingest</text>
+<text x="60" y="100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">Keys start with custom.nexus.log. Dimensions drop the nexus. prefix: metric queries group by cluster, service...;</text>
+<text x="60" y="124" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">log queries by nexus.cluster, nexus.service...</text>
+<rect x="60" y="160" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="319" y="174" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="359" y="191" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="76" y="192" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.responses</text>
+<text x="76" y="218" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="76" y="242" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = audit_resp</text>
+<text x="76" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="76" y="290" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, service, channel, outcome,</text>
+<text x="76" y="309" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">http_code</text>
+<text x="76" y="344" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">KPIs, % error, status, daily report</text>
+<rect x="435" y="160" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="694" y="174" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="734" y="191" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="451" y="192" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.timeouts</text>
+<text x="451" y="218" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="451" y="242" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = timeout_504</text>
+<text x="451" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="451" y="290" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, service, channel</text>
+<text x="451" y="344" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">504 timeouts and their alert</text>
+<rect x="810" y="160" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1069" y="174" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="1109" y="191" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="826" y="192" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.mapping_errors</text>
+<text x="826" y="218" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="826" y="242" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = mapping_error</text>
+<text x="826" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="826" y="290" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, service, channel,</text>
+<text x="826" y="309" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">mapping.direction, mapping.field</text>
+<text x="826" y="344" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">mapping errors and their alert</text>
+<rect x="1185" y="160" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1444" y="174" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="1484" y="191" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="1201" y="192" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.backend_calls</text>
+<text x="1201" y="218" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="1201" y="242" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = backend_time</text>
+<text x="1201" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="1201" y="290" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, component, latency_bucket</text>
+<text x="1201" y="344" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">% of slow backend calls, alert</text>
+<rect x="60" y="380" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="319" y="394" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="359" y="411" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="76" y="412" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.backend_ms</text>
+<text x="76" y="438" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">value: duration_ms</text>
+<text x="76" y="462" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = backend_time</text>
+<text x="76" y="490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="76" y="510" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, component</text>
+<text x="76" y="564" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">backend latency: average, maximum</text>
+<rect x="435" y="380" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="694" y="394" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="734" y="411" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="451" y="412" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="700" fill="#1F2933" text-anchor="start">adapter.stratus_late_replies</text>
+<text x="451" y="438" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="451" y="462" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = stratus_late_reply</text>
+<text x="451" y="490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="451" y="510" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, component</text>
+<text x="451" y="564" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">Stratus replies after the timeout</text>
+<rect x="810" y="380" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1069" y="394" width="80" height="24" rx="12" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="1109" y="411" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1F6FB2" text-anchor="middle">adapter</text>
+<text x="826" y="412" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">adapter.stream_issues</text>
+<text x="826" y="438" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="826" y="462" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = stream_*</text>
+<text x="826" y="490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="826" y="510" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, component, kind,</text>
+<text x="826" y="529" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">stream.attribute</text>
+<text x="826" y="564" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">data quality of the backend</text>
+<rect x="1185" y="380" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1444" y="394" width="80" height="24" rx="12" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1484" y="411" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="1201" y="412" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">mngr.errors</text>
+<text x="1201" y="438" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="1201" y="462" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = mngr_error</text>
+<text x="1201" y="490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="1201" y="510" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, service, channel</text>
+<text x="1201" y="564" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">mngr errors and their alert</text>
+<rect x="60" y="600" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="319" y="614" width="80" height="24" rx="12" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="359" y="631" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="76" y="632" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">mngr.soap_responses</text>
+<text x="76" y="658" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="76" y="682" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = soap_resp</text>
+<text x="76" y="710" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="76" y="730" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, acceptance, soap.operation,</text>
+<text x="76" y="749" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">soap.msg_code</text>
+<text x="76" y="784" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">% of M answers to the channel</text>
+<rect x="435" y="600" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="694" y="614" width="80" height="24" rx="12" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="734" y="631" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="451" y="632" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">mngr.consumer_mismatch</text>
+<text x="451" y="658" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="451" y="682" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = consumer_mismatch</text>
+<text x="451" y="710" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="451" y="730" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster</text>
+<text x="451" y="784" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">mismatches per 100 transactions</text>
+<rect x="810" y="600" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1069" y="614" width="80" height="24" rx="12" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1109" y="631" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#5B3FA8" text-anchor="middle">mngr</text>
+<text x="826" y="632" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">esb.step_ms</text>
+<text x="826" y="658" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">value: duration_ms</text>
+<text x="826" y="682" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = esb_step</text>
+<text x="826" y="710" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="826" y="730" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, service, esb.step</text>
+<text x="826" y="784" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">slowest ESB steps</text>
+<rect x="1185" y="600" width="355" height="200" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<rect x="1444" y="614" width="80" height="24" rx="12" fill="#F2F4F6" stroke="#52606D" stroke-width="1.5"/>
+<text x="1484" y="631" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#52606D" text-anchor="middle">both</text>
+<text x="1201" y="632" font-family="Consolas, Menlo, monospace" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">log_lines</text>
+<text x="1201" y="658" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counter</text>
+<text x="1201" y="682" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">from kind = any kind but shutdown_noise</text>
+<text x="1201" y="710" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#52606D" text-anchor="start">Dimensions</text>
+<text x="1201" y="730" font-family="Consolas, Menlo, monospace" font-size="13" font-weight="400" fill="#1F2933" text-anchor="start">cluster, component, loglevel</text>
+<text x="1201" y="784" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">log volume by level, pipeline health</text>
+<text x="60" y="850" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#52606D" text-anchor="start">A counter adds 1 per matching line. A value metric stores duration_ms, so a query can take its sum, average or maximum.</text>
+</svg>

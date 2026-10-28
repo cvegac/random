@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9AA5B1"/></marker></defs>
+<rect width="1600" height="900" fill="#FFFFFF"/>
+<text x="60" y="66" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#1F2933" text-anchor="start">Nexus log pipeline in Dynatrace</text>
+<text x="60" y="100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">From the ECS containers to the dashboard, the alerts and the daily report</text>
+<rect x="40" y="150" width="280" height="490" rx="10" fill="#F2F4F6" stroke="#52606D" stroke-width="2"/>
+<text x="60" y="186" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#1F2933" text-anchor="start">1. Sources</text>
+<rect x="60" y="210" width="240" height="128" rx="10" fill="#F2F4F6" stroke="#52606D" stroke-width="1.5"/>
+<text x="76" y="238" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Adapters</text>
+<text x="76" y="260" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">call the backends</text>
+<text x="76" y="282" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">/aws/ecs/srv/</text>
+<text x="76" y="304" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">&lt;cluster&gt;ws-*-adapter</text>
+<rect x="60" y="352" width="240" height="128" rx="10" fill="#F2F4F6" stroke="#52606D" stroke-width="1.5"/>
+<text x="76" y="380" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">mngr (proxy WS / ESB)</text>
+<text x="76" y="402" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">answers the channel (SOAP)</text>
+<text x="76" y="424" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">/aws/ecs/srv/</text>
+<text x="76" y="446" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">&lt;cluster&gt;ws-*-mngr</text>
+<text x="60" y="518" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">CloudWatch Logs</text>
+<text x="60" y="540" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">one log group per container,</text>
+<text x="60" y="562" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">forwarded to Dynatrace with</text>
+<text x="60" y="584" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">aws.log_group</text>
+<path d="M 320 400 L 348 400" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="350" y="150" width="820" height="490" rx="10" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="2"/>
+<text x="370" y="186" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#1F2933" text-anchor="start">2. OpenPipeline, pipeline nexus</text>
+<rect x="370" y="300" width="170" height="200" rx="10" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="386" y="330" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Route</text>
+<text x="386" y="352" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">dynamic route:</text>
+<text x="386" y="374" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">log group under</text>
+<text x="386" y="396" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">/aws/ecs/srv/</text>
+<text x="386" y="418" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">ending in</text>
+<text x="386" y="440" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">-adapter | -mngr</text>
+<path d="M 540 400 L 568 400" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="570" y="220" width="230" height="360" rx="10" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="586" y="250" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Processing</text>
+<text x="586" y="272" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">13 DQL processors,</text>
+<text x="586" y="294" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">one per line type</text>
+<text x="586" y="338" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">turn the raw line into</text>
+<text x="586" y="360" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">nexus.* attributes:</text>
+<text x="586" y="382" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">kind, cluster, service,</text>
+<text x="586" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">channel, rquid, outcome,</text>
+<text x="586" y="426" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">http_code, duration_ms</text>
+<text x="586" y="470" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#52606D" text-anchor="start">planned: drop OneAgent</text>
+<text x="586" y="492" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#52606D" text-anchor="start">noise, mask customer id</text>
+<path d="M 800 330 L 828 330" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<path d="M 800 480 L 828 480" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="830" y="240" width="320" height="160" rx="10" fill="#EDF7F1" stroke="#2E7D4F" stroke-width="1.5"/>
+<text x="846" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Metric extraction</text>
+<text x="846" y="292" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">12 metrics, key prefix</text>
+<text x="846" y="314" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">custom.nexus.log.*</text>
+<text x="846" y="336" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">counts and times by cluster,</text>
+<text x="846" y="358" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">service, channel, outcome</text>
+<rect x="830" y="420" width="320" height="160" rx="10" fill="#FBF4E8" stroke="#A86B12" stroke-width="1.5"/>
+<text x="846" y="450" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Storage</text>
+<text x="846" y="472" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">bck-nexus-error-log</text>
+<text x="846" y="494" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">error lines only (small)</text>
+<text x="846" y="516" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="400" fill="#1F2933" text-anchor="start">logs_integracion</text>
+<text x="846" y="538" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">everything else (large)</text>
+<path d="M 1170 400 L 1198 400" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<rect x="1200" y="150" width="360" height="490" rx="10" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="2"/>
+<text x="1220" y="186" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#1F2933" text-anchor="start">3. Who reads it</text>
+<rect x="1220" y="206" width="320" height="94" rx="10" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1236" y="234" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Nexus V2 dashboard</text>
+<text x="1236" y="256" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">status at a glance, KPIs, alerts,</text>
+<text x="1236" y="278" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">error detail, trace by rquid</text>
+<rect x="1220" y="312" width="320" height="94" rx="10" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1236" y="340" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Custom alerts</text>
+<text x="1236" y="362" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">Anomaly Detection over the</text>
+<text x="1236" y="384" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">metrics, one series per cluster</text>
+<rect x="1220" y="418" width="320" height="94" rx="10" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1236" y="446" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">Notebooks 1 to 4</text>
+<text x="1236" y="468" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">context, pipeline, dashboard, alerts;</text>
+<text x="1236" y="490" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">a test next to every piece</text>
+<rect x="1220" y="524" width="320" height="94" rx="10" fill="#F3F0FA" stroke="#5B3FA8" stroke-width="1.5"/>
+<text x="1236" y="552" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1F2933" text-anchor="start">daily_report.sh</text>
+<text x="1236" y="574" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">report for the team chat:</text>
+<text x="1236" y="596" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">metrics + error bucket</text>
+<rect x="40" y="670" width="1520" height="190" rx="10" fill="#F7F8FA" stroke="#9AA5B1" stroke-width="2"/>
+<text x="60" y="704" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#1F2933" text-anchor="start">Why it is built this way</text>
+<text x="60" y="742" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">30M transactions a day</text>
+<text x="60" y="766" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">A query over raw logs scans everything</text>
+<text x="60" y="790" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">in its time range. Over a full day that</text>
+<text x="60" y="814" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">does not scale.</text>
+<text x="565" y="742" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Metrics are computed at ingest</text>
+<text x="565" y="766" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">A tile or an alert over a metric costs the</text>
+<text x="565" y="790" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">same with any traffic and any time range.</text>
+<text x="1070" y="742" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Errors get their own bucket</text>
+<text x="1070" y="766" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">Error detail reads a small bucket. The large</text>
+<text x="1070" y="790" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">one is read only to follow one rquid or a</text>
+<text x="1070" y="814" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">short window.</text>
+</svg>

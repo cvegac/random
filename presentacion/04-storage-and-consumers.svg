@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9AA5B1"/></marker></defs>
+<rect width="1600" height="900" fill="#FFFFFF"/>
+<text x="60" y="66" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#1F2933" text-anchor="start">Storage and who reads what</text>
+<text x="60" y="100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="400" fill="#52606D" text-anchor="start">Every processed line lands in one of two buckets; dashboards, alerts and reports pick the cheapest source</text>
+<rect x="190" y="160" width="240" height="60" rx="10" fill="#EEF4FB" stroke="#1F6FB2" stroke-width="1.5"/>
+<text x="310" y="197" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#1F2933" text-anchor="middle">Processed line</text>
+<path d="M 310 220 L 310 252" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<polygon points="310,255 440,320 310,385 180,320" fill="#FFFFFF" stroke="#A86B12" stroke-width="2"/>
+<text x="310" y="314" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="middle">Is it an</text>
+<text x="310" y="336" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="middle">error line?</text>
+<path d="M 180 320 L 120 320 L 120 428" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text x="150" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="middle">yes</text>
+<path d="M 440 320 L 575 320 L 575 428" fill="none" stroke="#9AA5B1" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text x="475" y="312" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#52606D" text-anchor="middle">no</text>
+<rect x="40" y="430" width="330" height="280" rx="10" fill="#FBF4E8" stroke="#A86B12" stroke-width="2"/>
+<text x="58" y="462" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">bck-nexus-error-log</text>
+<text x="58" y="508" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">kind is one of</text>
+<text x="58" y="531" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">mapping_error, timeout_504,</text>
+<text x="58" y="554" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">technical_error, mngr_error,</text>
+<text x="58" y="577" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">stratus_late_reply, stream_*</text>
+<text x="58" y="600" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">or outcome = error</text>
+<text x="58" y="646" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Small: cheap over long ranges</text>
+<text x="58" y="669" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">long retention (e.g. 90 days)</text>
+<rect x="410" y="430" width="330" height="280" rx="10" fill="#FBF4E8" stroke="#A86B12" stroke-width="2"/>
+<text x="428" y="462" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="400" fill="#1F2933" text-anchor="start">logs_integracion</text>
+<text x="428" y="508" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">everything else:</text>
+<text x="428" y="531" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">healthy traffic, ESB steps,</text>
+<text x="428" y="554" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">backend times, SOAP answers</text>
+<text x="428" y="577" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">(B / M / C)</text>
+<text x="428" y="646" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Large: short ranges only</text>
+<text x="428" y="669" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">trace by rquid, diagnosis</text>
+<rect x="40" y="740" width="700" height="120" rx="10" fill="#F7F8FA" stroke="#9AA5B1" stroke-width="2"/>
+<text x="58" y="772" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">One failed call, two lines</text>
+<text x="58" y="796" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">The error bucket keeps the error response (audit_resp) and its cause</text>
+<text x="58" y="820" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#1F2933" text-anchor="start">(timeout_504, mapping_error...). Count transactions by rquid, not lines.</text>
+<text x="800" y="196" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#1F2933" text-anchor="start">Who reads what</text>
+<text x="1262" y="236" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#52606D" text-anchor="middle">Metrics</text>
+<text x="1372" y="236" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#52606D" text-anchor="middle">Error bucket</text>
+<text x="1490" y="236" font-family="Consolas, Menlo, monospace" font-size="14" font-weight="700" fill="#52606D" text-anchor="middle">logs_integracion</text>
+<rect x="790" y="252" width="770" height="62" fill="#F7F8FA"/>
+<text x="806" y="279" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Nexus V2: status and sections 1 to 4</text>
+<text x="806" y="301" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">KPIs, adapters, proxy, alerts, volume</text>
+<circle cx="1262" cy="283.0" r="9" fill="#2E7D4F"/>
+<circle cx="1372" cy="283.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<circle cx="1490" cy="283.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<text x="806" y="341" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Nexus V2: 5. error detail</text>
+<text x="806" y="363" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">messages, mapping examples, rquids</text>
+<circle cx="1262" cy="345.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<circle cx="1372" cy="345.0" r="9" fill="#A86B12"/>
+<circle cx="1490" cy="345.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<rect x="790" y="376" width="770" height="62" fill="#F7F8FA"/>
+<text x="806" y="403" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Nexus V2: 6. transactions, trace by rquid</text>
+<text x="806" y="425" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">one transaction across both buckets</text>
+<circle cx="1262" cy="407.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<circle cx="1372" cy="407.0" r="9" fill="#A86B12"/>
+<circle cx="1490" cy="407.0" r="9" fill="#A86B12"/>
+<text x="806" y="465" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Nexus V2: 7. pipeline health</text>
+<text x="806" y="487" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">last 15 minutes only</text>
+<circle cx="1262" cy="469.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<circle cx="1372" cy="469.0" r="9" fill="#A86B12"/>
+<circle cx="1490" cy="469.0" r="9" fill="#A86B12"/>
+<rect x="790" y="500" width="770" height="62" fill="#F7F8FA"/>
+<text x="806" y="527" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Custom alerts (Anomaly Detection)</text>
+<text x="806" y="549" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">evaluated every minute, per cluster</text>
+<circle cx="1262" cy="531.0" r="9" fill="#2E7D4F"/>
+<circle cx="1372" cy="531.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<circle cx="1490" cy="531.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<text x="806" y="589" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">daily_report.sh</text>
+<text x="806" y="611" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">counts from metrics, detail from errors</text>
+<circle cx="1262" cy="593.0" r="9" fill="#2E7D4F"/>
+<circle cx="1372" cy="593.0" r="9" fill="#A86B12"/>
+<circle cx="1490" cy="593.0" r="5" fill="none" stroke="#9AA5B1" stroke-width="1.5"/>
+<rect x="790" y="624" width="770" height="62" fill="#F7F8FA"/>
+<text x="806" y="651" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1F2933" text-anchor="start">Notebooks</text>
+<text x="806" y="673" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#52606D" text-anchor="start">a test next to each processor and metric</text>
+<circle cx="1262" cy="655.0" r="9" fill="#2E7D4F"/>
+<circle cx="1372" cy="655.0" r="9" fill="#A86B12"/>
+<circle cx="1490" cy="655.0" r="9" fill="#A86B12"/>
+<text x="806" y="722" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#52606D" text-anchor="start">Counts and trends come from metrics; messages and examples from the</text>
+<text x="806" y="746" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="400" fill="#52606D" text-anchor="start">error bucket; the large bucket only for one rquid or a short window.</text>
+</svg>
