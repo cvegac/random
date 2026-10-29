@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Looks up services in the soap-services-proxy-config table and prints, per matching item:
-# keys, file references (.xsd/.groovy/s3://), hash-like values and enable/status flags.
-# Read-only: a single scan of the table (small config table), everything else is local.
+# Diagnoses why the ESB (mngr) skips or disables services when it loads its cache:
+#   "Servicio ignorado y no cargado en caché: xsd no disponible"   -> XSD missing, wrong name/case, bad imports
+#   "Servicio deshabilitado por diferencias en el hash del groovy" -> scriptHash in DynamoDB != groovy in S3
+# Read-only:
+#   1. scan the soap-services-proxy-config table and pick the items of the given services
+#   2. list the bucket and download its .xsd/.groovy files
+#   3. per item: XSD at <idProxy>/<xsdFileName> (case-sensitive, like S3) and its schemaLocation imports;
+#      which groovy in the bucket has the item's scriptHash (raw file, LF or CRLF line endings)
+#   4. the error lines of the last LOOKBACK_HOURS in the mngr log groups of those idProxy
 #
-# Usage: ./check_proxy_config.sh <service> [service ...]   (a name, or part of serviceId / idProxy)
-# Output: stdout report + results/proxy_config_<ts>/ (raw scan, items, one JSON per service)
-# Env: AWS_REGION, TABLE, OUT
+# Usage: BUCKET=<xsd bucket> ./check_proxy_config.sh <service> [service ...]   (part of serviceId / idProxy)
+# Output: stdout report + $OUT (raw scan, items, bucket copy, hashes.tsv, report.txt)
+# Env: BUCKET (required), AWS_REGION, TABLE, OUT, LOOKBACK_HOURS
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
@@ -14,19 +20,39 @@ export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
 
 REGION="${AWS_REGION:-us-east-1}"
 TABLE="${TABLE:-soap-services-proxy-config}"
+BUCKET="${BUCKET:-}"
 OUT="${OUT:-results/proxy_config_$(date +%Y%m%d_%H%M%S)}"
+LOOKBACK_HOURS="${LOOKBACK_HOURS:-24}"
+ERROR_REGEX='Servicio ignorado|Servicio deshabilitado'
 
+log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
 die() { echo "Error: $*" >&2; exit 1; }
-[ $# -gt 0 ] || die "usage: $0 <service> [service ...]"
-SERVICES=("$@")
+
+[ $# -gt 0 ] || die "usage: BUCKET=<xsd bucket> $0 <service> [service ...]"
+[ -n "$BUCKET" ] || die "set BUCKET (the S3 bucket with the .xsd and .groovy files)"
 command -v aws >/dev/null || die "aws cli not found"
 command -v jq  >/dev/null || die "jq not found"
+SERVICES=("$@")
+
+# native Windows aws/jq can't open /c/... paths
+case "$OUT" in /*) OUT=$(cygpath -m "$OUT" 2>/dev/null || printf '%s' "$OUT") ;; esac
 mkdir -p "$OUT"
 
-echo "Scanning $TABLE in $REGION ..." >&2
-aws --no-verify-ssl dynamodb scan --region "$REGION" --table-name "$TABLE" --output json \
-    > "$OUT/raw_scan.json" 2> "$OUT/aws_stderr.log" \
-  || { awk '!/InsecureRequestWarning/ && !/warnings\.warn\(/' "$OUT/aws_stderr.log" >&2; die "scan failed"; }
+# aws wrapper: --no-verify-ssl and drop the urllib3 warnings from stderr
+aws_cli() {
+  local err rc=0
+  err=$(mktemp)
+  aws --no-verify-ssl "$@" 2> "$err" || rc=$?
+  awk '!/InsecureRequestWarning/ && !/warnings\.warn\(/ && NF' "$err" | tr -d '\r' >&2
+  rm -f "$err"
+  return "$rc"
+}
+
+# ---------------------------------------------------------------- data
+
+log "Scanning $TABLE in $REGION ..."
+aws_cli dynamodb scan --region "$REGION" --table-name "$TABLE" --output json > "$OUT/raw_scan.json" \
+  || die "scan failed"
 
 # DynamoDB JSON -> plain JSON (numbers kept as strings)
 jq '
@@ -37,39 +63,159 @@ jq '
     else . end;
   [.Items[] | map_values(un)]' < "$OUT/raw_scan.json" > "$OUT/items.json"
 
-total=$(jq length < "$OUT/items.json")
-echo "Items in table: $total" >&2
-echo
+services_json=$(printf '%s\n' "${SERVICES[@]}" | jq -R . | jq -s -c . | tr -d '\r')
+jq --argjson s "$services_json" '
+  [.[] | . as $i | ((.serviceId // "") + " " + (.idProxy // "")) as $k
+   | select(any($s[]; . as $n | $k | contains($n)))]' < "$OUT/items.json" > "$OUT/selected.json"
 
-for s in "${SERVICES[@]}"; do
-  jq --arg s "$s" '[.[] | select(((.serviceId // "") + " " + (.idProxy // "")) | contains($s))]' \
-     < "$OUT/items.json" > "$OUT/$s.json"
-  n=$(jq length < "$OUT/$s.json")
+log "Listing s3://$BUCKET ..."
+aws_cli s3api list-objects-v2 --region "$REGION" --bucket "$BUCKET" --query 'Contents[].Key' --output json \
+  > "$OUT/keys.json" || die "bucket listing failed"
+jq -r '.[]?' < "$OUT/keys.json" | tr -d '\r' > "$OUT/keys.txt"
+
+log "Downloading the .xsd and .groovy files ($(awk 'END {print NR}' "$OUT/keys.txt") objects in the bucket) ..."
+aws_cli s3 sync "s3://$BUCKET" "$OUT/bucket" --region "$REGION" --only-show-errors \
+  --exclude '*' --include '*.xsd' --include '*.groovy' || die "download failed"
+
+log "Hashing the groovy files ..."
+sha() { sha256sum | cut -d' ' -f1; }
+while IFS= read -r key; do
+  case "$key" in *.groovy) ;; *) continue ;; esac
+  f="$OUT/bucket/$key"
+  [ -f "$f" ] || continue
+  printf '%s\traw\t%s\n'  "$key" "$(sha < "$f")"
+  printf '%s\tLF\t%s\n'   "$key" "$(tr -d '\r' < "$f" | sha)"
+  printf '%s\tCRLF\t%s\n' "$key" "$(tr -d '\r' < "$f" | awk '{printf "%s\r\n", $0}' | sha)"
+done < "$OUT/keys.txt" > "$OUT/hashes.tsv"
+
+# ---------------------------------------------------------------- checks
+
+key_exists() { grep -qxF -- "$1" "$OUT/keys.txt"; }
+
+# keys with the same file name ignoring case and folder
+similar() {
+  local base found
+  base=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')
+  found=$(awk -v b="$base" '{n = $0; sub(/.*\//, "", n); if (tolower(n) == b) print}' "$OUT/keys.txt" | paste -sd' ' -)
+  [ -z "$found" ] || printf '  -> same name ignoring case/folder: %s' "$found"
+}
+
+# resolve ./ and ../ in a key
+normalize() {
+  awk -v p="$1" 'BEGIN { n = split(p, a, "/"); k = 0
+    for (i = 1; i <= n; i++) { if (a[i] == "." || a[i] == "") continue; if (a[i] == "..") { if (k > 0) k--; continue }; o[++k] = a[i] }
+    s = o[1]; for (i = 2; i <= k; i++) s = s "/" o[i]; print s }'
+}
+
+xml_check() {
+  local f="$1" res
+  if command -v xmllint >/dev/null; then
+    if res=$(xmllint --noout "$f" 2>&1); then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
+  elif command -v powershell.exe >/dev/null; then
+    res=$(powershell.exe -NoProfile -Command "try { [xml](Get-Content -Raw -LiteralPath '$(cygpath -w "$f")') | Out-Null; 'OK' } catch { \$_.Exception.Message }" 2>&1 | tr -d '\r')
+    if [ "$res" = OK ]; then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
+  else
+    echo "    well-formedness not checked (no xmllint or powershell)"
+  fi
+}
+
+check_xsd() {
+  local idp="$1" xsd="$2" key loc imp
+  [ -n "$xsd" ] || { echo "  XSD     no .xsd file name in the item"; return 0; }
+  key="$idp/$xsd"
+  if ! key_exists "$key"; then
+    echo "  XSD     MISSING $key$(similar "$key")"
+    return 0
+  fi
+  echo "  XSD     OK      $key"
+  xml_check "$OUT/bucket/$key"
+  while IFS= read -r loc; do
+    case "$loc" in http*|'') continue ;; esac
+    imp=$(normalize "${key%/*}/$loc")
+    if key_exists "$imp"; then echo "    import OK      $imp"; else echo "    import MISSING $imp$(similar "$imp")"; fi
+  done < <(grep -oE 'schemaLocation="[^"]+"' "$OUT/bucket/$key" | cut -d'"' -f2 | tr -d '\r' || true)
+}
+
+check_groovy() {
+  local hash="$1" name="$2" refs="$3" m r prefix
+  if [ -z "$hash" ]; then
+    echo "  GROOVY  no scriptHash in the item"
+  else
+    hash=$(printf '%s' "$hash" | tr '[:upper:]' '[:lower:]')
+    m=$(awk -F'\t' -v h="$hash" '$3 == h {print $1 " (" $2 ")"}' "$OUT/hashes.tsv" | paste -sd';' -)
+    if [ -n "$m" ]; then echo "  GROOVY  scriptHash ${hash:0:16}... matches: $m"
+    else echo "  GROOVY  scriptHash ${hash:0:16}... matches NO groovy in the bucket"; fi
+  fi
+  for r in $refs; do
+    if key_exists "$r"; then echo "  groovy ref OK      $r"; else echo "  groovy ref MISSING $r$(similar "$r")"; fi
+  done
+  # groovies whose name starts like the service, to compare by eye
+  prefix=$(printf '%s' "${name:0:10}" | tr '[:upper:]' '[:lower:]')
+  [ -n "$prefix" ] || return 0
+  awk -F'\t' -v p="$prefix" '{n = $1; sub(/.*\//, "", n)} index(tolower(n), p) == 1 && $2 != "CRLF" {printf "    candidate %-50s %-4s %s...\n", $1, $2, substr($3, 1, 16)}' "$OUT/hashes.tsv"
+}
+
+check_items() {
+  local s item idp sid xsd hash name refs
+  echo "Table $TABLE: $(jq length < "$OUT/items.json") items, $(jq length < "$OUT/selected.json") for: ${SERVICES[*]}"
+  echo "Bucket $BUCKET: $(awk 'END {print NR}' "$OUT/keys.txt") objects"
+  echo "Hash match: (raw) file identical; (LF)/(CRLF) only matches after changing the line endings"
+  for s in "${SERVICES[@]}"; do
+    jq -e --arg s "$s" 'any(.[]; ((.serviceId // "") + " " + (.idProxy // "")) | contains($s))' \
+      < "$OUT/items.json" >/dev/null || echo "NOT IN TABLE: $s"
+  done
+  echo
+
+  while IFS= read -r item; do
+    idp=$(jq -r '.idProxy // ""' <<<"$item" | tr -d '\r')
+    sid=$(jq -r '.serviceId // ""' <<<"$item" | tr -d '\r')
+    xsd=$(jq -r '[paths(type == "string") as $p | getpath($p) | select(test("\\.xsd$"; "i"))] | first // ""' <<<"$item" | tr -d '\r')
+    hash=$(jq -r '[paths(type == "string") as $p | select($p[-1] | tostring | test("hash"; "i")) | getpath($p)] | first // ""' <<<"$item" | tr -d '\r')
+    refs=$(jq -r '[paths(type == "string") as $p | getpath($p) | select(test("\\.groovy$"; "i"))] | join(" ")' <<<"$item" | tr -d '\r')
+    name=$(jq -r '(.serviceId // "") | sub(":[^:/]*$"; "") | split("/") | map(select(. != "" and (test("^V[0-9]+$") | not))) | last // ""' <<<"$item" | tr -d '\r')
+    echo "=================================================================="
+    echo "$sid  (idProxy=$idp)"
+    echo "  servicesList: $(jq -c '.servicesList // {}' <<<"$item" | tr -d '\r')"
+    check_xsd "$idp" "$xsd"
+    check_groovy "$hash" "$name" "$refs"
+    echo
+  done < <(jq -c '.[]' < "$OUT/selected.json" | tr -d '\r')
+}
+
+fetch_errors() {
+  local groups=() end start q qid res status
+  mapfile -t groups < <(jq -r '[.[].idProxy // empty | sub("_[0-9]+$"; "") | "/aws/ecs/srv/\(.)-mngr"] | unique[]' \
+                          < "$OUT/selected.json" | tr -d '\r')
+  [ ${#groups[@]} -gt 0 ] || return 0
   echo "=================================================================="
-  echo "$s: $n item(s)"
-  [ "$n" -gt 0 ] || { echo "  NOT FOUND in $TABLE (neither serviceId nor idProxy contains it)"; echo; continue; }
+  echo "Error lines, last ${LOOKBACK_HOURS}h (UTC) in: ${groups[*]}"
+  end=$(date +%s); start=$((end - LOOKBACK_HOURS * 3600))
+  q="filter @message like /${ERROR_REGEX}/
+| parse @message /(?<msg>Servicio [di][a-z]+ .*)/
+| stats count(*) as hits, min(@timestamp) as first_seen, max(@timestamp) as last_seen by @log, msg
+| sort last_seen desc
+| limit 200"
+  qid=$(aws_cli logs start-query --region "$REGION" --start-time "$start" --end-time "$end" \
+          --query-string "$q" --log-group-names "${groups[@]}" --query queryId --output text | tr -d '\r') \
+    || { echo "  query failed (see the error above)"; return 0; }
+  while :; do
+    res=$(aws_cli logs get-query-results --region "$REGION" --query-id "$qid" --output json)
+    status=$(jq -r .status <<<"$res" | tr -d '\r')
+    case "$status" in
+      Complete) break ;;
+      Failed|Cancelled|Timeout) echo "  query ended with status $status"; return 0 ;;
+    esac
+    sleep 2
+  done
+  printf '%s' "$res" > "$OUT/error_lines.json"
+  if [ "$(jq '.results | length' <<<"$res" | tr -d '\r')" = 0 ]; then
+    echo "  none (the cache is loaded at startup: raise LOOKBACK_HOURS to cover the last deploy)"
+    return 0
+  fi
+  jq -r '.results[] | (map({(.field): .value}) | add)
+         | "  \(.hits)x  \(.first_seen) .. \(.last_seen)  \(.["@log"] | sub("^[0-9]+:"; ""))\n      \(.msg)"' \
+     <<<"$res" | tr -d '\r'
+}
 
-  jq -r '
-    .[] |
-    [paths(type == "string" or type == "boolean" or type == "number") as $p
-      | {k: ($p | map(tostring) | join(".")), v: getpath($p)}] as $leaves |
-    "--- idProxy=\(.idProxy // "?")  serviceId=\(.serviceId // "?")",
-    "  attributes: \(keys | join(", "))",
-    ($leaves[] | select((.v | type) == "string" and (.v | test("\\.(xsd|groovy|wsdl)$|^s3://"; "i")))
-      | "  file    \(.k) = \(.v)"),
-    ($leaves[] | select((.k | test("hash|checksum|md5|sha"; "i"))
-                        or ((.v | type) == "string" and (.v | test("^([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"))))
-      | "  hash    \(.k) = \(.v)"),
-    ($leaves[] | select(.k | test("enabl|activ|status|estado|disabl"; "i"))
-      | "  flag    \(.k) = \(.v)"),
-    ""' < "$OUT/$s.json"
-done
-
-echo "=================================================================="
-echo "Version check (is 9.9.9 normal in this table?)"
-jq -r '
-  [.[] | (.serviceId // "") | capture(":(?<v>[0-9][0-9.]*)$").v // "no-version"]
-  | group_by(.) | map({v: .[0], n: length}) | sort_by(-.n)[]
-  | "  \(.v): \(.n) item(s)"' < "$OUT/items.json"
-echo
-echo "Full items saved in $OUT/<service>.json" >&2
+{ check_items; fetch_errors; } | tee "$OUT/report.txt"
+log "Report and files in $OUT"
