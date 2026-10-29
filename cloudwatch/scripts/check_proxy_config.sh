@@ -107,13 +107,16 @@ normalize() {
     s = o[1]; for (i = 2; i <= k; i++) s = s "/" o[i]; print s }'
 }
 
+# never fatal: a blocked or broken powershell must not stop the report
 xml_check() {
-  local f="$1" res
+  local f="$1" res rc=0
   if command -v xmllint >/dev/null; then
     if res=$(xmllint --noout "$f" 2>&1); then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
   elif command -v powershell.exe >/dev/null; then
-    res=$(powershell.exe -NoProfile -Command "try { [xml](Get-Content -Raw -LiteralPath '$(cygpath -w "$f")') | Out-Null; 'OK' } catch { \$_.Exception.Message }" 2>&1 | tr -d '\r')
-    if [ "$res" = OK ]; then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
+    res=$(powershell.exe -NoProfile -Command "try { [xml](Get-Content -Raw -LiteralPath '$(cygpath -w "$f")') | Out-Null; 'OK' } catch { \$_.Exception.Message }" 2>&1 | tr -d '\r') || rc=$?
+    if [ "$rc" -ne 0 ]; then echo "    well-formedness not checked (powershell exit $rc): ${res:0:200}"
+    elif [ "$res" = OK ]; then echo "    well-formed"
+    else echo "    NOT well-formed: $res"; fi
   else
     echo "    well-formedness not checked (no xmllint or powershell)"
   fi
@@ -171,7 +174,10 @@ check_items() {
     sid=$(jq -r '.serviceId // ""' <<<"$item" | tr -d '\r')
     xsd=$(jq -r '[paths(type == "string") as $p | getpath($p) | select(test("\\.xsd$"; "i"))] | first // ""' <<<"$item" | tr -d '\r')
     hash=$(jq -r '[paths(type == "string") as $p | select($p[-1] | tostring | test("hash"; "i")) | getpath($p)] | first // ""' <<<"$item" | tr -d '\r')
-    refs=$(jq -r '[paths(type == "string") as $p | getpath($p) | select(test("\\.groovy$"; "i"))] | join(" ")' <<<"$item" | tr -d '\r')
+    # groovy keys: values ending in .groovy, or scriptFileName (stored without the extension)
+    refs=$(jq -r '[paths(type == "string") as $p | {k: ($p[-1] | tostring), v: getpath($p)}
+                   | if (.v | test("\\.groovy$"; "i")) then .v elif (.k | test("^scriptFile"; "i")) then .v + ".groovy" else empty end]
+                  | unique | join(" ")' <<<"$item" | tr -d '\r')
     name=$(jq -r '(.serviceId // "") | sub(":[^:/]*$"; "") | split("/") | map(select(. != "" and (test("^V[0-9]+$") | not))) | last // ""' <<<"$item" | tr -d '\r')
     echo "=================================================================="
     echo "$sid  (idProxy=$idp)"
