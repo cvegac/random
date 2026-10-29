@@ -107,19 +107,11 @@ normalize() {
     s = o[1]; for (i = 2; i <= k; i++) s = s "/" o[i]; print s }'
 }
 
-# never fatal: a blocked or broken powershell must not stop the report
+# xmllint only: powershell.exe from Git Bash can fail or read the loop's stdin and cut the report short
 xml_check() {
-  local f="$1" res rc=0
-  if command -v xmllint >/dev/null; then
-    if res=$(xmllint --noout "$f" 2>&1); then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
-  elif command -v powershell.exe >/dev/null; then
-    res=$(powershell.exe -NoProfile -Command "try { [xml](Get-Content -Raw -LiteralPath '$(cygpath -w "$f")') | Out-Null; 'OK' } catch { \$_.Exception.Message }" 2>&1 | tr -d '\r') || rc=$?
-    if [ "$rc" -ne 0 ]; then echo "    well-formedness not checked (powershell exit $rc): ${res:0:200}"
-    elif [ "$res" = OK ]; then echo "    well-formed"
-    else echo "    NOT well-formed: $res"; fi
-  else
-    echo "    well-formedness not checked (no xmllint or powershell)"
-  fi
+  local res
+  command -v xmllint >/dev/null || return 0
+  if res=$(xmllint --noout "$1" 2>&1 < /dev/null); then echo "    well-formed"; else echo "    NOT well-formed: $res"; fi
 }
 
 check_xsd() {
