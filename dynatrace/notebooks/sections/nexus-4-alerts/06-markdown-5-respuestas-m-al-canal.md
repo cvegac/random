@@ -13,4 +13,6 @@ Más del 40 % de las respuestas SOAP al canal en {dims:cluster} salieron con car
 M mezcla rechazos de negocio y errores técnicos, y el umbral todavía está a calibrar: ver primero si al mismo
 tiempo hay alertas de error de los adaptadores; si no las hay, lo más probable es un cambio de negocio.
 Revisar en el tablero Nexus V2: "% RESPUESTAS M POR CLUSTER" y "OPERACIONES CON MÁS RESPUESTAS M" (operación y código de mensaje).
+Tablero con la alerta (Nexus V2, sección 3. Alertas en el rango, "5. % RESPUESTAS M AL CANAL"):
+<url-nexus-v2>
 ```

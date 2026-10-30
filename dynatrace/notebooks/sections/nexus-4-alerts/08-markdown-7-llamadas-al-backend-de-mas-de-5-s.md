@@ -21,4 +21,6 @@ en 3 de los últimos 5 minutos. 5 s es el timeout del canal: el canal ya está r
 Los minutos con 10 llamadas o menos no cuentan.
 Revisar en el tablero Nexus V2: "LATENCIA BACKEND POR ADAPTADOR (promedio ms)" y "LLAMADAS AL BACKEND POR TRAMO DE LATENCIA" para
 ver qué adaptador; suele venir junto con timeouts 504.
+Tablero con la alerta (Nexus V2, sección 3. Alertas en el rango, "7. % LLAMADAS AL BACKEND DE MÁS DE 5 S"):
+<url-nexus-v2>
 ```

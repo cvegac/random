@@ -13,4 +13,6 @@ del mensaje" por cada 100 transacciones en {dims:cluster}, en 3 de las últimas 
 Suele venir de un consumidor puntual.
 Revisar en el tablero Nexus V2: "CONSUMIDOR QUE NO COINCIDE (por 100 tx)". Las líneas están en logs con
 nexus.kind == "consumer_mismatch" (bucket logs_integracion, rango corto).
+Tablero con la alerta (Nexus V2, sección 3. Alertas en el rango, "9. CONSUMIDOR QUE NO COINCIDE, POR CADA 100 TRANSACCIONES"):
+<url-nexus-v2>
 ```

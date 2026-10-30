@@ -12,4 +12,6 @@ Más de 2 timeouts 504 por minuto en los adaptadores de {dims:cluster} en 3 de l
 no contestó dentro del timeout del adaptador.
 Revisar en el tablero Nexus V2: "TIMEOUTS 504 POR SERVICIO Y CANAL" para ver a quién afecta y "TIMEOUTS 504 Y RESPUESTAS TARDÍAS
 DE STRATUS": con respuestas tardías, Stratus contestó pero lento; sin ellas, Stratus no contestó.
+Tablero con la alerta (Nexus V2, sección 3. Alertas en el rango, "2. TIMEOUTS 504"):
+<url-nexus-v2>
 ```

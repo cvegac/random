@@ -2,6 +2,8 @@ CAMBIOS AL NOTEBOOK nexus-4-alerts EN EL TENANT
 
 30/10: cada alerta trae el título y la descripción de su plantilla de evento (Anomaly Detection > la alerta >
 Event template). Son las 12 secciones markdown del notebook: la de arriba y una por alerta. Las queries no cambian.
+La descripción termina con el link al tablero Nexus V2 filtrado en el cluster: antes de pegarla, cambiar
+<url-nexus-v2> por la URL del tablero (cómo armarla: sección 01, la de arriba del notebook).
 13 y 14 son del paquete del 27/10 (alerta 7 con corte en 5 s): pegarlas solo si todavía no se pegaron.
 
 Abrir cada archivo, Ctrl+A, Ctrl+C y pegarlo en la sección reemplazando todo su contenido.

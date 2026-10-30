@@ -39,6 +39,11 @@ Los umbrales de hoy se calibraron para todos los clusters juntos; por cluster pu
 en los clusters con poco tráfico. Cada alerta trae el título y la descripción de su plantilla
 de evento, listos para pegar; los dos llevan el cluster con `{dims:cluster}` (verificar el formato del placeholder
 en el tenant).
+La descripción termina con el link al tablero Nexus V2 filtrado en el cluster de la alerta, donde está la misma
+serie (sección 3. Alertas en el rango). Antes de pegarla, cambiar `<url-nexus-v2>` por la URL del tablero: abrirlo
+en el tenant, dejar un rango relativo (por ejemplo Last 2 hours), elegir un solo cluster en el filtro Cluster, copiar
+la URL del navegador y cambiar en ella el nombre del cluster (por ejemplo `accountsws`) por `{dims:cluster}`.
+La URL es la misma para las 11 alertas.
 Para que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.
 
 Cada alerta va con su query graficada por cluster. Las de umbral fijo traen además "¿habría alertado?": por

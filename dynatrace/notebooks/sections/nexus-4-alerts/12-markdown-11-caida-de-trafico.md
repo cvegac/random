@@ -13,4 +13,6 @@ Las respuestas de los adaptadores de {dims:cluster} bajaron por debajo de lo nor
 Puede ser que no llega tráfico del canal, que el adaptador está caído o que los logs dejaron de llegar a Dynatrace.
 Revisar en el tablero Nexus V2: "RESPUESTAS ADAPTADOR EN EL TIEMPO" y "LOG GROUPS ENRUTADOS Y PROCESADOS" (salud del pipeline):
 si el pipeline tampoco recibe líneas del cluster, la falla es de la ingesta y no del servicio.
+Tablero con la alerta (Nexus V2, sección 3. Alertas en el rango, "11. CAÍDA DE TRÁFICO"):
+<url-nexus-v2>
 ```
