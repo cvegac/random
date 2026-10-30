@@ -9,12 +9,12 @@
     {
       "type": "markdown",
       "id": "097f6c34-d6ba-4327-9e32-437aecc4da83",
-      "markdown": "# Nexus · 4. Alertas\n\nLos notebooks de Nexus:\n1. Contexto y línea base: cuánto pesa hoy y qué atributos agrega la ingesta.\n2. Pipeline: ruta, procesadores, métricas y buckets, cada uno con su prueba.\n3. Tablero: las consultas del tablero general sobre métricas y la búsqueda de logs.\n4. Alertas: cada alerta con su query, su prueba y la alerta actual para comparar.\n\n## Alertas sobre las métricas de ingesta\n\nDónde: app Anomaly Detection > Custom alerts > New. Cada alerta es una query `timeseries` sobre las métricas\n`custom.nexus.log.*`, un analizador y una plantilla de evento.\n\nPor qué cambiarlas: las alertas de hoy (`dynatrace/alerts/*.dql`) corren `fetch logs` cada minuto; con 30M tx/día\nescanean el bucket completo todo el día. Sobre métricas, cada evaluación cuesta lo mismo con cualquier volumen.\nComo las queries devuelven una serie por `cluster`, Dynatrace evalúa y alerta cada cluster por separado.\n\nTransición: dejar las alertas actuales activas hasta que la métrica de cada una esté validada (notebook Pipeline, validación); después crear la nueva y apagar la vieja.\n\n| Hecho | Alerta | Métrica | Analizador | Umbral inicial | Reemplaza |\n|---|---|---|---|---|---|\n| [ ] | % error real del adaptador | `custom.nexus.log.adapter.responses` | estático, ABOVE | 5 % | `adapters-real-error-pct.dql` |\n| [ ] | Timeouts 504 | `custom.nexus.log.adapter.timeouts` | estático, ABOVE | 2 por minuto | `adapters-timeouts.dql` |\n| [ ] | Errores de mapeo | `custom.nexus.log.adapter.mapping_errors` | estático, ABOVE | 2 por minuto | `adapters-mapping-errors.dql` |\n| [ ] | 5xx del backend | `custom.nexus.log.adapter.responses` | estático, ABOVE | 1 por minuto | `adapters-backend-5xx.dql` |\n| [ ] | % respuestas M al canal | `custom.nexus.log.mngr.soap_responses` | estático, ABOVE (después, línea base estacional) | 40 % (a calibrar) | `channel-rejection-pct.dql` |\n| [ ] | Errores del mngr | `custom.nexus.log.mngr.errors` | auto-adaptativo | | `mngr-errors.dql` |\n| [ ] | % llamadas al backend de más de 5 s | `custom.nexus.log.adapter.backend_calls` | estático, ABOVE | 5 % | `mngr-latency-p90.dql` (ver nota) |\n| [ ] | Respuestas tardías de Stratus | `custom.nexus.log.adapter.stratus_late_replies` | auto-adaptativo | | nueva |\n| [ ] | Consumidor que no coincide (por 100 tx) | `custom.nexus.log.mngr.consumer_mismatch` | auto-adaptativo | | nueva |\n| [ ] | Datos incompletos del backend | `custom.nexus.log.adapter.stream_issues` | auto-adaptativo | | nueva |\n| [ ] | Caída de tráfico | `custom.nexus.log.adapter.responses` | línea base estacional, BELOW | | nueva |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente.\n\nConfiguración común, la misma que las alertas actuales: violating samples 3, sliding window 5, dealerting\nsamples 5, alert on missing data apagado (salvo la caída de tráfico, donde no tener datos es justamente la falla).\nLos umbrales de hoy se calibraron para todos los clusters juntos; por cluster pueden necesitar ajuste, sobre todo\nen los clusters con poco tráfico. En la plantilla del evento, poner el cluster en el título, por ejemplo\n`Nexus: timeouts 504 en {dims:cluster}` (verificar el formato del placeholder en el tenant).\nPara que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.\n\nCada alerta va con su query graficada por cluster. Las de umbral fijo traen además \"¿habría alertado?\": por\ncluster, los minutos sobre el umbral y los minutos en que se cumplía 3 de 5 (aproximación: no simula el\ndealerting). Las que reemplazan una alerta actual traen la query actual sobre logs, para comparar con el mismo rango.\n`interval: 1m` y `default: 0` hacen que los minutos sin datos cuenten como 0 y no como hueco."
+      "markdown": "# Nexus · 4. Alertas\n\nLos notebooks de Nexus:\n1. Contexto y línea base: cuánto pesa hoy y qué atributos agrega la ingesta.\n2. Pipeline: ruta, procesadores, métricas y buckets, cada uno con su prueba.\n3. Tablero: las consultas del tablero general sobre métricas y la búsqueda de logs.\n4. Alertas: cada alerta con su query, su prueba y la alerta actual para comparar.\n\n## Alertas sobre las métricas de ingesta\n\nDónde: app Anomaly Detection > Custom alerts > New. Cada alerta es una query `timeseries` sobre las métricas\n`custom.nexus.log.*`, un analizador y una plantilla de evento.\n\nPor qué cambiarlas: las alertas de hoy (`dynatrace/alerts/*.dql`) corren `fetch logs` cada minuto; con 30M tx/día\nescanean el bucket completo todo el día. Sobre métricas, cada evaluación cuesta lo mismo con cualquier volumen.\nComo las queries devuelven una serie por `cluster`, Dynatrace evalúa y alerta cada cluster por separado.\n\nTransición: dejar las alertas actuales activas hasta que la métrica de cada una esté validada (notebook Pipeline, validación); después crear la nueva y apagar la vieja.\n\n| Hecho | Alerta | Métrica | Analizador | Umbral inicial | Reemplaza |\n|---|---|---|---|---|---|\n| [ ] | % error real del adaptador | `custom.nexus.log.adapter.responses` | estático, ABOVE | 5 % | `adapters-real-error-pct.dql` |\n| [ ] | Timeouts 504 | `custom.nexus.log.adapter.timeouts` | estático, ABOVE | 2 por minuto | `adapters-timeouts.dql` |\n| [ ] | Errores de mapeo | `custom.nexus.log.adapter.mapping_errors` | estático, ABOVE | 2 por minuto | `adapters-mapping-errors.dql` |\n| [ ] | 5xx del backend | `custom.nexus.log.adapter.responses` | estático, ABOVE | 1 por minuto | `adapters-backend-5xx.dql` |\n| [ ] | % respuestas M al canal | `custom.nexus.log.mngr.soap_responses` | estático, ABOVE (después, línea base estacional) | 40 % (a calibrar) | `channel-rejection-pct.dql` |\n| [ ] | Errores del mngr | `custom.nexus.log.mngr.errors` | auto-adaptativo | | `mngr-errors.dql` |\n| [ ] | % llamadas al backend de más de 5 s | `custom.nexus.log.adapter.backend_calls` | estático, ABOVE | 5 % | `mngr-latency-p90.dql` (ver nota) |\n| [ ] | Respuestas tardías de Stratus | `custom.nexus.log.adapter.stratus_late_replies` | auto-adaptativo | | nueva |\n| [ ] | Consumidor que no coincide (por 100 tx) | `custom.nexus.log.mngr.consumer_mismatch` | auto-adaptativo | | nueva |\n| [ ] | Datos incompletos del backend | `custom.nexus.log.adapter.stream_issues` | auto-adaptativo | | nueva |\n| [ ] | Caída de tráfico | `custom.nexus.log.adapter.responses` | línea base estacional, BELOW | | nueva |\n\nLa columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente.\n\nConfiguración común, la misma que las alertas actuales: violating samples 3, sliding window 5, dealerting\nsamples 5, alert on missing data apagado (salvo la caída de tráfico, donde no tener datos es justamente la falla).\nLos umbrales de hoy se calibraron para todos los clusters juntos; por cluster pueden necesitar ajuste, sobre todo\nen los clusters con poco tráfico. Cada alerta trae el título y la descripción de su plantilla\nde evento, listos para pegar; los dos llevan el cluster con `{dims:cluster}` (verificar el formato del placeholder\nen el tenant).\nPara que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.\n\nCada alerta va con su query graficada por cluster. Las de umbral fijo traen además \"¿habría alertado?\": por\ncluster, los minutos sobre el umbral y los minutos en que se cumplía 3 de 5 (aproximación: no simula el\ndealerting). Las que reemplazan una alerta actual traen la query actual sobre logs, para comparar con el mismo rango.\n`interval: 1m` y `default: 0` hacen que los minutos sin datos cuenten como 0 y no como hueco."
     },
     {
       "type": "markdown",
       "id": "0fcb763e-4c1b-4dc6-934d-9c6d046daeb5",
-      "markdown": "### 1. % error real del adaptador\n\n2xx y 412 no son error; minutos con 10 respuestas o menos cuentan como 0. Estático, ABOVE, umbral 5 %."
+      "markdown": "### 1. % error real del adaptador\n\n2xx y 412 no son error; minutos con 10 respuestas o menos cuentan como 0. Estático, ABOVE, umbral 5 %.\n\nPlantilla del evento. Título:\n```\nNexus: % error real del adaptador sobre 5 % en {dims:cluster}\n```\nDescripción:\n```\nMás del 5 % de las respuestas de los adaptadores de {dims:cluster} fueron error (código HTTP fuera de 2xx y 412;\nel 412 es respuesta de negocio) en 3 de los últimos 5 minutos. Los minutos con 10 respuestas o menos no cuentan.\nRevisar en el tablero Nexus V2: \"RESPUESTAS POR CÓDIGO HTTP\" y \"RESPUESTAS POR SERVICIO Y CANAL\" para ver qué código,\nservicio y canal; los rquid están en \"RQUIDS CON ERROR (respuesta del adaptador)\".\n```"
     },
     {
       "type": "dql",
@@ -118,7 +118,7 @@
     {
       "type": "markdown",
       "id": "d0f2fbe2-e191-42e7-b382-a546b593816a",
-      "markdown": "### 2. Timeouts 504\n\nEstático, ABOVE, umbral 2 por minuto."
+      "markdown": "### 2. Timeouts 504\n\nEstático, ABOVE, umbral 2 por minuto.\n\nPlantilla del evento. Título:\n```\nNexus: timeouts 504 en {dims:cluster}\n```\nDescripción:\n```\nMás de 2 timeouts 504 por minuto en los adaptadores de {dims:cluster} en 3 de los últimos 5 minutos: el backend\nno contestó dentro del timeout del adaptador.\nRevisar en el tablero Nexus V2: \"TIMEOUTS 504 POR SERVICIO Y CANAL\" para ver a quién afecta y \"TIMEOUTS 504 Y RESPUESTAS TARDÍAS\nDE STRATUS\": con respuestas tardías, Stratus contestó pero lento; sin ellas, Stratus no contestó.\n```"
     },
     {
       "type": "dql",
@@ -222,7 +222,7 @@
     {
       "type": "markdown",
       "id": "d4156d2a-b010-4d95-8fe2-fb8d39e79791",
-      "markdown": "### 3. Errores de mapeo\n\nEstático, ABOVE, umbral 2 por minuto."
+      "markdown": "### 3. Errores de mapeo\n\nEstático, ABOVE, umbral 2 por minuto.\n\nPlantilla del evento. Título:\n```\nNexus: errores de mapeo en {dims:cluster}\n```\nDescripción:\n```\nMás de 2 errores de mapeo por minuto (GenericExceptionMapper, sin los 504) en los adaptadores de {dims:cluster}\nen 3 de los últimos 5 minutos: un request o una respuesta trae un campo que no cumple la regla del mapeo.\nSuele ser un canal que manda datos nuevos o un cambio en lo que devuelve el backend.\nRevisar en el tablero Nexus V2: \"ERRORES DE MAPEO POR SERVICIO Y CAMPO\" y \"ERRORES DE MAPEO CON EJEMPLO\" (dirección REQUEST o\nRESPONSE, campo y regla).\n```"
     },
     {
       "type": "dql",
@@ -326,7 +326,7 @@
     {
       "type": "markdown",
       "id": "690b49db-9129-4355-842e-91f94a1fe08b",
-      "markdown": "### 4. 5xx del backend\n\nEstático, ABOVE, umbral 1 por minuto."
+      "markdown": "### 4. 5xx del backend\n\nEstático, ABOVE, umbral 1 por minuto.\n\nPlantilla del evento. Título:\n```\nNexus: respuestas 5xx del backend en {dims:cluster}\n```\nDescripción:\n```\nMás de 1 respuesta 5xx por minuto en los adaptadores de {dims:cluster} en 3 de los últimos 5 minutos: el backend\no el adaptador fallaron por un error técnico.\nRevisar en el tablero Nexus V2: \"RESPUESTAS POR CÓDIGO HTTP\" para ver el código (si son 504, seguir con la alerta de timeouts) y\n\"RESPUESTAS POR SERVICIO Y CANAL\" para ver el servicio; los rquid están en \"RQUIDS CON ERROR (respuesta del adaptador)\".\n```"
     },
     {
       "type": "dql",
@@ -430,7 +430,7 @@
     {
       "type": "markdown",
       "id": "f4a5f226-9774-43bf-9cd0-78045ddffe1e",
-      "markdown": "### 5. % respuestas M al canal\n\nLa C no cuenta como M hasta que negocio defina qué es. Estático, ABOVE, umbral 40 % (a calibrar; después, línea base estacional)."
+      "markdown": "### 5. % respuestas M al canal\n\nLa C no cuenta como M hasta que negocio defina qué es. Estático, ABOVE, umbral 40 % (a calibrar; después, línea base estacional).\n\nPlantilla del evento. Título:\n```\nNexus: % respuestas M al canal sobre 40 % en {dims:cluster}\n```\nDescripción:\n```\nMás del 40 % de las respuestas SOAP al canal en {dims:cluster} salieron con caracterAceptacion M en 3 de los\núltimos 5 minutos. Los minutos con 10 respuestas o menos no cuentan.\nM mezcla rechazos de negocio y errores técnicos, y el umbral todavía está a calibrar: ver primero si al mismo\ntiempo hay alertas de error de los adaptadores; si no las hay, lo más probable es un cambio de negocio.\nRevisar en el tablero Nexus V2: \"% RESPUESTAS M POR CLUSTER\" y \"OPERACIONES CON MÁS RESPUESTAS M\" (operación y código de mensaje).\n```"
     },
     {
       "type": "dql",
@@ -534,7 +534,7 @@
     {
       "type": "markdown",
       "id": "84f00a28-367c-460b-97cc-158a1e8229d1",
-      "markdown": "### 6. Errores del mngr\n\nAuto-adaptativo."
+      "markdown": "### 6. Errores del mngr\n\nAuto-adaptativo.\n\nPlantilla del evento. Título:\n```\nNexus: errores del mngr en {dims:cluster}\n```\nDescripción:\n```\nLas líneas [ERROR del ws mngr de {dims:cluster} subieron por encima de su nivel normal (umbral auto-adaptativo)\nen 3 de los últimos 5 minutos.\nRevisar en el tablero Nexus V2: \"ERRORES DEL MNGR POR SERVICIO Y CANAL\" para ver a quién afecta y \"ERRORES DEL MNGR POR MENSAJE\"\npara ver qué error es.\n```"
     },
     {
       "type": "dql",
@@ -605,7 +605,7 @@
     {
       "type": "markdown",
       "id": "d64176d2-1e13-41b7-8e72-39f8f6696e4d",
-      "markdown": "### 7. % llamadas al backend de más de 5 s\n\nEstático, ABOVE, umbral 5 %.\n\nTemporal (27/10): el corte pasó de 1 s a 5 s porque disparaba demasiado de madrugada. 5 s es el timeout del\ncanal, así que avisa cuando el canal ya está fallando. El objetivo acordado es 2 a 3 s sostenidos: para eso hay\nque partir el tramo `1-5s` del procesador 5 en `1-3s` y `3-5s` y cambiar este filtro a `in(latency_bucket, array(\"3-5s\", \"5s+\"))`.\n\nNota: la alerta actual de latencia suma los pasos del ESB por transacción (p90 de punta a punta). Eso necesita\nagrupar por rquid, y una métrica no puede hacerlo. Esta alerta mide la parte del backend; la de punta a punta\npuede quedar sobre logs, pero evaluada cada 5 minutos y no cada minuto."
+      "markdown": "### 7. % llamadas al backend de más de 5 s\n\nEstático, ABOVE, umbral 5 %.\n\nTemporal (27/10): el corte pasó de 1 s a 5 s porque disparaba demasiado de madrugada. 5 s es el timeout del\ncanal, así que avisa cuando el canal ya está fallando. El objetivo acordado es 2 a 3 s sostenidos: para eso hay\nque partir el tramo `1-5s` del procesador 5 en `1-3s` y `3-5s` y cambiar este filtro a `in(latency_bucket, array(\"3-5s\", \"5s+\"))`.\n\nNota: la alerta actual de latencia suma los pasos del ESB por transacción (p90 de punta a punta). Eso necesita\nagrupar por rquid, y una métrica no puede hacerlo. Esta alerta mide la parte del backend; la de punta a punta\npuede quedar sobre logs, pero evaluada cada 5 minutos y no cada minuto.\n\nPlantilla del evento. Título:\n```\nNexus: llamadas al backend de más de 5 s en {dims:cluster}\n```\nDescripción:\n```\nMás del 5 % de las llamadas de los adaptadores de {dims:cluster} al backend tardaron más de 5 s (tiempo RSIN)\nen 3 de los últimos 5 minutos. 5 s es el timeout del canal: el canal ya está recibiendo fallas.\nLos minutos con 10 llamadas o menos no cuentan.\nRevisar en el tablero Nexus V2: \"LATENCIA BACKEND POR ADAPTADOR (promedio ms)\" y \"LLAMADAS AL BACKEND POR TRAMO DE LATENCIA\" para\nver qué adaptador; suele venir junto con timeouts 504.\n```"
     },
     {
       "type": "dql",
@@ -709,7 +709,7 @@
     {
       "type": "markdown",
       "id": "3df1cdb9-1d67-4767-be9f-8f9bd4c1a4d7",
-      "markdown": "### 8. Respuestas tardías de Stratus\n\nAuto-adaptativo. Nueva."
+      "markdown": "### 8. Respuestas tardías de Stratus\n\nAuto-adaptativo. Nueva.\n\nPlantilla del evento. Título:\n```\nNexus: respuestas tardías de Stratus en {dims:cluster}\n```\nDescripción:\n```\nSubieron por encima de lo normal (umbral auto-adaptativo) las respuestas de Stratus que llegan después de que el\nadaptador de {dims:cluster} ya cortó por timeout, en 3 de los últimos 5 minutos. Stratus está contestando, pero\nmás lento que el timeout del adaptador.\nRevisar en el tablero Nexus V2: \"TIMEOUTS 504 Y RESPUESTAS TARDÍAS DE STRATUS\" y \"LATENCIA BACKEND POR ADAPTADOR (promedio ms)\".\n```"
     },
     {
       "type": "dql",
@@ -747,7 +747,7 @@
     {
       "type": "markdown",
       "id": "0455a477-c22f-474d-b963-a938dc225ed5",
-      "markdown": "### 9. Consumidor que no coincide, por cada 100 transacciones\n\nEl nivel normal cambia mucho entre clusters, por eso auto-adaptativo y no un umbral fijo. Nueva."
+      "markdown": "### 9. Consumidor que no coincide, por cada 100 transacciones\n\nEl nivel normal cambia mucho entre clusters, por eso auto-adaptativo y no un umbral fijo. Nueva.\n\nPlantilla del evento. Título:\n```\nNexus: consumidor que no coincide en {dims:cluster}\n```\nDescripción:\n```\nSubió por encima de lo normal (umbral auto-adaptativo) el WARN del mngr \"Consumidor no coincide con el cuerpo\ndel mensaje\" por cada 100 transacciones en {dims:cluster}, en 3 de las últimas 5 ventanas de 5 minutos.\nSuele venir de un consumidor puntual.\nRevisar en el tablero Nexus V2: \"CONSUMIDOR QUE NO COINCIDE (por 100 tx)\". Las líneas están en logs con\nnexus.kind == \"consumer_mismatch\" (bucket logs_integracion, rango corto).\n```"
     },
     {
       "type": "dql",
@@ -785,7 +785,7 @@
     {
       "type": "markdown",
       "id": "da3f3469-7e88-444d-99e3-a465305ca65f",
-      "markdown": "### 10. Datos incompletos del backend\n\nAuto-adaptativo. Nueva."
+      "markdown": "### 10. Datos incompletos del backend\n\nAuto-adaptativo. Nueva.\n\nPlantilla del evento. Título:\n```\nNexus: datos incompletos del backend en {dims:cluster}\n```\nDescripción:\n```\nSubieron por encima de lo normal (umbral auto-adaptativo) los WARN [STREAM] de los adaptadores de {dims:cluster},\nen 3 de las últimas 5 ventanas de 5 minutos: el backend devolvió listas con ítems incompletos o caracteres nulos.\nRevisar en el tablero Nexus V2: \"CALIDAD DE DATOS DEL BACKEND ([STREAM])\" para ver el adaptador, el tipo y el atributo.\n```"
     },
     {
       "type": "dql",
@@ -823,7 +823,7 @@
     {
       "type": "markdown",
       "id": "6514a1cc-0cb7-4faa-9082-df1c9c9f008d",
-      "markdown": "### 11. Caída de tráfico\n\nLínea base estacional, BELOW, con alert on missing data encendido. Nueva."
+      "markdown": "### 11. Caída de tráfico\n\nLínea base estacional, BELOW, con alert on missing data encendido. Nueva.\n\nPlantilla del evento. Título:\n```\nNexus: caída de tráfico en {dims:cluster}\n```\nDescripción:\n```\nLas respuestas de los adaptadores de {dims:cluster} bajaron por debajo de lo normal para esta hora y día\n(línea base estacional) en 3 de las últimas 5 ventanas de 5 minutos, o dejaron de llegar datos.\nPuede ser que no llega tráfico del canal, que el adaptador está caído o que los logs dejaron de llegar a Dynatrace.\nRevisar en el tablero Nexus V2: \"RESPUESTAS ADAPTADOR EN EL TIEMPO\" y \"LOG GROUPS ENRUTADOS Y PROCESADOS\" (salud del pipeline):\nsi el pipeline tampoco recibe líneas del cluster, la falla es de la ingesta y no del servicio.\n```"
     },
     {
       "type": "dql",

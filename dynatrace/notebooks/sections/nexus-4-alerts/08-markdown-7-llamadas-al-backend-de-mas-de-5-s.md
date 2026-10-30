@@ -9,3 +9,16 @@ que partir el tramo `1-5s` del procesador 5 en `1-3s` y `3-5s` y cambiar este fi
 Nota: la alerta actual de latencia suma los pasos del ESB por transacción (p90 de punta a punta). Eso necesita
 agrupar por rquid, y una métrica no puede hacerlo. Esta alerta mide la parte del backend; la de punta a punta
 puede quedar sobre logs, pero evaluada cada 5 minutos y no cada minuto.
+
+Plantilla del evento. Título:
+```
+Nexus: llamadas al backend de más de 5 s en {dims:cluster}
+```
+Descripción:
+```
+Más del 5 % de las llamadas de los adaptadores de {dims:cluster} al backend tardaron más de 5 s (tiempo RSIN)
+en 3 de los últimos 5 minutos. 5 s es el timeout del canal: el canal ya está recibiendo fallas.
+Los minutos con 10 llamadas o menos no cuentan.
+Revisar en el tablero Nexus V2: "LATENCIA BACKEND POR ADAPTADOR (promedio ms)" y "LLAMADAS AL BACKEND POR TRAMO DE LATENCIA" para
+ver qué adaptador; suele venir junto con timeouts 504.
+```

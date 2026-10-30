@@ -36,8 +36,9 @@ La columna Hecho se marca a mano: `[x]` hecho, `[ ]` pendiente.
 Configuración común, la misma que las alertas actuales: violating samples 3, sliding window 5, dealerting
 samples 5, alert on missing data apagado (salvo la caída de tráfico, donde no tener datos es justamente la falla).
 Los umbrales de hoy se calibraron para todos los clusters juntos; por cluster pueden necesitar ajuste, sobre todo
-en los clusters con poco tráfico. En la plantilla del evento, poner el cluster en el título, por ejemplo
-`Nexus: timeouts 504 en {dims:cluster}` (verificar el formato del placeholder en el tenant).
+en los clusters con poco tráfico. Cada alerta trae el título y la descripción de su plantilla
+de evento, listos para pegar; los dos llevan el cluster con `{dims:cluster}` (verificar el formato del placeholder
+en el tenant).
 Para que lleguen notificaciones hace falta un Workflow que tome estos eventos; hoy no hay ninguno.
 
 Cada alerta va con su query graficada por cluster. Las de umbral fijo traen además "¿habría alertado?": por
